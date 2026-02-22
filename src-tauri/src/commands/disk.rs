@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use crate::models::Disk;
 use crate::Result;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

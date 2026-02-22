@@ -61,3 +61,23 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
 }
+
+.sidebar-lang {
+  padding: 10px 20px;
+}
+
+.sidebar-lang select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sidebar-lang select option {
+  background: #4a5568;
+  color: white;
+}

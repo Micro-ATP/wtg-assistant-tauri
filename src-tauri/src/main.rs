@@ -5,12 +5,13 @@
 )]
 
 mod commands;
+mod error;
 mod models;
 mod platform;
 mod services;
 mod utils;
 
-use tauri::Manager;
+pub use error::{AppError, Result};
 
 fn main() {
     tauri::Builder::default()
@@ -20,6 +21,10 @@ fn main() {
             commands::usb::start_usb_monitoring,
             commands::usb::stop_usb_monitoring,
             commands::system::get_system_info,
+            commands::write::get_image_info,
+            commands::write::start_write,
+            commands::write::cancel_write,
+            commands::write::verify_system_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

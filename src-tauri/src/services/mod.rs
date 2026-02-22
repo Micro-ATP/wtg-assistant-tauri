@@ -1,1 +1,5 @@
-// Services module - high-level operations
+pub mod diskpart;
+pub mod image;
+pub mod vhd;
+pub mod boot;
+pub mod write;

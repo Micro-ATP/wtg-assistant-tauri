@@ -1,11 +1,10 @@
-import { invoke } from '@tauri-apps/api/tauri'
+import { invoke } from '@tauri-apps/api/core'
 import type {
-  Disk,
   DiskInfo,
   SystemInfo,
-  UsbDevice,
-  UsbEvent,
-  WriteConfig,
+  WtgConfig,
+  WriteProgress,
+  ImageInfo,
 } from '@/types'
 
 /**
@@ -37,7 +36,7 @@ export const diskApi = {
  * USB Operations API
  */
 export const usbApi = {
-  startMonitoring: async (appHandle: any): Promise<string> => {
+  startMonitoring: async (appHandle: unknown): Promise<string> => {
     try {
       const monitorId = await invoke<string>('start_usb_monitoring', {
         app_handle: appHandle,
@@ -75,33 +74,32 @@ export const systemApi = {
 }
 
 /**
+ * Image Operations API
+ */
+export const imageApi = {
+  getImageInfo: async (imagePath: string): Promise<ImageInfo[]> => {
+    try {
+      const info = await invoke<ImageInfo[]>('get_image_info', {
+        image_path: imagePath,
+      })
+      return info
+    } catch (error) {
+      console.error('Failed to get image info:', error)
+      throw error
+    }
+  },
+}
+
+/**
  * Write Operations API
  */
 export const writeApi = {
-  startWrite: async (config: WriteConfig): Promise<string> => {
+  startWrite: async (config: WtgConfig): Promise<WriteProgress> => {
     try {
-      const taskId = await invoke<string>('start_write', { config })
-      return taskId
+      const progress = await invoke<WriteProgress>('start_write', { config })
+      return progress
     } catch (error) {
       console.error('Failed to start write operation:', error)
-      throw error
-    }
-  },
-
-  pauseWrite: async (taskId: string): Promise<void> => {
-    try {
-      await invoke('pause_write', { task_id: taskId })
-    } catch (error) {
-      console.error('Failed to pause write operation:', error)
-      throw error
-    }
-  },
-
-  resumeWrite: async (taskId: string): Promise<void> => {
-    try {
-      await invoke('resume_write', { task_id: taskId })
-    } catch (error) {
-      console.error('Failed to resume write operation:', error)
       throw error
     }
   },
@@ -111,6 +109,18 @@ export const writeApi = {
       await invoke('cancel_write', { task_id: taskId })
     } catch (error) {
       console.error('Failed to cancel write operation:', error)
+      throw error
+    }
+  },
+
+  verifySystemFiles: async (targetDisk: string): Promise<boolean> => {
+    try {
+      const result = await invoke<boolean>('verify_system_files', {
+        target_disk: targetDisk,
+      })
+      return result
+    } catch (error) {
+      console.error('Failed to verify system files:', error)
       throw error
     }
   },

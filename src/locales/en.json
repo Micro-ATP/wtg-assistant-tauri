@@ -50,7 +50,9 @@
     "compactOs": "CompactOS",
     "dotnet35": ".NET Framework 3.5",
     "noDefaultLetter": "No Default Drive Letter",
-    "repartition": "Repartition Disk"
+    "repartition": "Repartition Disk",
+    "selectEdition": "Select Windows Edition",
+    "loadingImageInfo": "Reading image information, please wait..."
   },
   "write": {
     "title": "Write",

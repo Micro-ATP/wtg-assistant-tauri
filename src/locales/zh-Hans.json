@@ -50,7 +50,9 @@
     "compactOs": "CompactOS 压缩",
     "dotnet35": ".NET Framework 3.5",
     "noDefaultLetter": "不分配默认盘符",
-    "repartition": "重新分区磁盘"
+    "repartition": "重新分区磁盘",
+    "selectEdition": "选择 Windows 版本",
+    "loadingImageInfo": "正在读取镜像信息，请稍候..."
   },
   "write": {
     "title": "写入",

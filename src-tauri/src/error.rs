@@ -4,8 +4,7 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, AppError>;
 
-#[derive(Error, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Error, Debug)]
 pub enum AppError {
     #[error("IO error: {0}")]
     Io(String),
@@ -42,6 +41,17 @@ pub enum AppError {
 
     #[error("Unknown error")]
     Unknown,
+}
+
+// Serialize as a plain string so Tauri sends the error message to the frontend,
+// not a JSON object like { "commandFailed": "..." }
+impl Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 impl AppError {

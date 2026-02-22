@@ -280,7 +280,7 @@
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
 }
 
-/* WIM index selector */
+/* WIM index selector (legacy) */
 .wim-index-selector {
   margin-top: 16px;
   display: flex;
@@ -292,6 +292,112 @@
   font-size: 13px;
   color: var(--text-light);
   font-weight: 500;
+}
+
+/* Image loading indicator */
+.image-loading {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: #f0f4ff;
+  border-radius: 6px;
+  color: var(--primary-color);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Edition selector */
+.edition-selector {
+  margin-top: 16px;
+}
+
+.edition-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dark);
+  margin-bottom: 10px;
+}
+
+.edition-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edition-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edition-item:hover {
+  border-color: var(--primary-color);
+  background: rgba(102, 126, 234, 0.03);
+}
+
+.edition-item.selected {
+  border-color: var(--primary-color);
+  background: rgba(102, 126, 234, 0.08);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.edition-radio {
+  flex-shrink: 0;
+}
+
+.edition-radio input[type="radio"] {
+  accent-color: var(--primary-color);
+  width: 16px;
+  height: 16px;
+}
+
+.edition-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.edition-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-dark);
+  margin-bottom: 2px;
+}
+
+.edition-desc {
+  font-size: 12px;
+  color: var(--text-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edition-size {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+
+.edition-index {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+  background: var(--light-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 /* Actions */

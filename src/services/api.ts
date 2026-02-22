@@ -23,7 +23,7 @@ export const diskApi = {
 
   getDiskInfo: async (diskId: string): Promise<DiskInfo> => {
     try {
-      const info = await invoke<DiskInfo>('get_disk_info', { disk_id: diskId })
+      const info = await invoke<DiskInfo>('get_disk_info', { diskId })
       return info
     } catch (error) {
       console.error('Failed to get disk info:', error)
@@ -39,7 +39,7 @@ export const usbApi = {
   startMonitoring: async (appHandle: unknown): Promise<string> => {
     try {
       const monitorId = await invoke<string>('start_usb_monitoring', {
-        app_handle: appHandle,
+        appHandle,
       })
       return monitorId
     } catch (error) {
@@ -50,7 +50,7 @@ export const usbApi = {
 
   stopMonitoring: async (monitorId: string): Promise<void> => {
     try {
-      await invoke('stop_usb_monitoring', { monitor_id: monitorId })
+      await invoke('stop_usb_monitoring', { monitorId })
     } catch (error) {
       console.error('Failed to stop USB monitoring:', error)
       throw error
@@ -80,7 +80,7 @@ export const imageApi = {
   getImageInfo: async (imagePath: string): Promise<ImageInfo[]> => {
     try {
       const info = await invoke<ImageInfo[]>('get_image_info', {
-        image_path: imagePath,
+        imagePath,
       })
       return info
     } catch (error) {
@@ -106,7 +106,7 @@ export const writeApi = {
 
   cancelWrite: async (taskId: string): Promise<void> => {
     try {
-      await invoke('cancel_write', { task_id: taskId })
+      await invoke('cancel_write', { taskId })
     } catch (error) {
       console.error('Failed to cancel write operation:', error)
       throw error
@@ -116,7 +116,7 @@ export const writeApi = {
   verifySystemFiles: async (targetDisk: string): Promise<boolean> => {
     try {
       const result = await invoke<boolean>('verify_system_files', {
-        target_disk: targetDisk,
+        targetDisk,
       })
       return result
     } catch (error) {

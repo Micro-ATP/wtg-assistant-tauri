@@ -1,6 +1,44 @@
+#![allow(dead_code)]
+
 use std::process::Command;
 use crate::AppError;
 use tracing::{info, warn, error};
+
+/// Decode command output bytes to String.
+/// On Chinese/Japanese/Korean Windows, system commands (DISM, diskpart, etc.)
+/// output text in the system's OEM code page (e.g. GBK for Chinese).
+/// We try UTF-8 first; if that fails, fall back to GBK decoding.
+fn decode_output(bytes: &[u8]) -> String {
+    // Try UTF-8 first (works for English output and already-UTF-8 systems)
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+
+    // Fall back to GBK (Windows code page 936, covers Simplified/Traditional Chinese)
+    #[cfg(target_os = "windows")]
+    {
+        let (decoded, _, _had_errors) = encoding_rs::GBK.decode(bytes);
+        return decoded.into_owned();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        String::from_utf8_lossy(bytes).to_string()
+    }
+}
+
+/// Configure a Command to hide the console window on Windows
+#[cfg(target_os = "windows")]
+fn hide_console(cmd: &mut Command) -> &mut Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    cmd.creation_flags(CREATE_NO_WINDOW)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hide_console(cmd: &mut Command) -> &mut Command {
+    cmd
+}
 
 pub struct CommandExecutor;
 
@@ -9,18 +47,19 @@ impl CommandExecutor {
     pub fn execute(cmd: &str, args: &[&str]) -> crate::Result<String> {
         info!("Executing: {} {}", cmd, args.join(" "));
 
-        let output = Command::new(cmd)
-            .args(args)
-            .output()
-            .map_err(AppError::io)?;
+        let mut command = Command::new(cmd);
+        command.args(args);
+        hide_console(&mut command);
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let output = command.output().map_err(AppError::io)?;
+
+        let stdout = decode_output(&output.stdout);
+        let stderr = decode_output(&output.stderr);
 
         if !output.status.success() {
             warn!("Command failed: {} - stderr: {}", cmd, stderr);
             return Err(AppError::CommandFailed(
-                format!("{}: {}", cmd, stderr)
+                format!("{}: {}", cmd, if stderr.trim().is_empty() { &stdout } else { &stderr })
             ));
         }
 
@@ -33,13 +72,14 @@ impl CommandExecutor {
     pub fn run_cmd(args: &str) -> crate::Result<String> {
         info!("Running cmd: {}", args);
 
-        let output = Command::new("cmd.exe")
-            .args(&["/c", args])
-            .output()
-            .map_err(AppError::io)?;
+        let mut command = Command::new("cmd.exe");
+        command.args(&["/c", args]);
+        hide_console(&mut command);
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let output = command.output().map_err(AppError::io)?;
+
+        let stdout = decode_output(&output.stdout);
+        let stderr = decode_output(&output.stderr);
 
         if !output.status.success() {
             warn!("CMD failed: {} - stderr: {}", args, stderr);
@@ -54,12 +94,13 @@ impl CommandExecutor {
     pub fn run_cmd_with_exit_code(args: &str) -> crate::Result<(String, i32)> {
         info!("Running cmd (with exit code): {}", args);
 
-        let output = Command::new("cmd.exe")
-            .args(&["/c", args])
-            .output()
-            .map_err(AppError::io)?;
+        let mut command = Command::new("cmd.exe");
+        command.args(&["/c", args]);
+        hide_console(&mut command);
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let output = command.output().map_err(AppError::io)?;
+
+        let stdout = decode_output(&output.stdout);
         let exit_code = output.status.code().unwrap_or(-1);
 
         Ok((stdout, exit_code))
@@ -69,13 +110,14 @@ impl CommandExecutor {
     pub fn execute_allow_fail(cmd: &str, args: &[&str]) -> crate::Result<String> {
         info!("Executing (allow fail): {} {}", cmd, args.join(" "));
 
-        let output = Command::new(cmd)
-            .args(args)
-            .output()
-            .map_err(AppError::io)?;
+        let mut command = Command::new(cmd);
+        command.args(args);
+        hide_console(&mut command);
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let output = command.output().map_err(AppError::io)?;
+
+        let stdout = decode_output(&output.stdout);
+        let stderr = decode_output(&output.stderr);
 
         if !output.status.success() {
             warn!("Command returned non-zero (allowed): {} - {}", cmd, stderr);
@@ -88,9 +130,10 @@ impl CommandExecutor {
     #[cfg(target_os = "windows")]
     pub fn kill_process(name: &str) -> crate::Result<()> {
         info!("Killing process: {}", name);
-        let _ = Command::new("taskkill.exe")
-            .args(&["/f", "/IM", name])
-            .output();
+        let mut cmd = Command::new("taskkill.exe");
+        cmd.args(&["/f", "/IM", name]);
+        hide_console(&mut cmd);
+        let _ = cmd.output();
         Ok(())
     }
 
@@ -121,13 +164,14 @@ pub fn run_diskpart_script(script: &str) -> crate::Result<String> {
     drop(file);
 
     // Execute diskpart with the script
-    let output = Command::new("diskpart.exe")
-        .args(&["/s", &script_path.to_string_lossy()])
-        .output()
-        .map_err(AppError::io)?;
+    let mut cmd = Command::new("diskpart.exe");
+    cmd.args(&["/s", &script_path.to_string_lossy()]);
+    hide_console(&mut cmd);
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let output = cmd.output().map_err(AppError::io)?;
+
+    let stdout = decode_output(&output.stdout);
+    let stderr = decode_output(&output.stderr);
 
     info!("Diskpart output: {}", stdout);
 
@@ -155,12 +199,13 @@ pub fn run_diskpart_script_with_output(script: &str) -> crate::Result<(String, S
     file.write_all(script.as_bytes()).map_err(AppError::io)?;
     drop(file);
 
-    let output = Command::new("diskpart.exe")
-        .args(&["/s", &script_path.to_string_lossy()])
-        .output()
-        .map_err(AppError::io)?;
+    let mut cmd = Command::new("diskpart.exe");
+    cmd.args(&["/s", &script_path.to_string_lossy()]);
+    hide_console(&mut cmd);
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let output = cmd.output().map_err(AppError::io)?;
+
+    let stdout = decode_output(&output.stdout);
 
     // Write output to file for parsing
     if let Ok(mut out_file) = std::fs::File::create(&output_path) {

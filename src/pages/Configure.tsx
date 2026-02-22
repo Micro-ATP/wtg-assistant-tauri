@@ -44,6 +44,8 @@ function ConfigurePage() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [imageLoading, setImageLoading] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
 
   const loadDisks = async () => {
     try {
@@ -74,21 +76,35 @@ function ConfigurePage() {
       if (selected) {
         const path = selected as string
         setImagePath(path)
+        setImageInfoList([])
+        setSelectedWimIndex('0')
+        setImageError(null)
 
-        // Auto-detect image type and get WIM info
         const ext = path.split('.').pop()?.toLowerCase() || ''
-        if (ext === 'wim' || ext === 'esd') {
-          try {
-            const info = await imageApi.getImageInfo(path)
-            setImageInfoList(info)
-          } catch {
-            setImageInfoList([])
-          }
-        } else if (ext === 'vhd' || ext === 'vhdx') {
+
+        // VHD/VHDX files are used directly, no index selection needed
+        if (ext === 'vhd' || ext === 'vhdx') {
           setApplyMode(ext as ApplyMode)
+          return
+        }
+
+        // For WIM, ESD, ISO: fetch image indexes from backend
+        setImageLoading(true)
+        try {
+          const info = await imageApi.getImageInfo(path)
+          setImageInfoList(info)
+          // If only one edition, auto-select it
+          if (info.length === 1) {
+            setSelectedWimIndex(String(info[0].index))
+          }
+        } catch (err: unknown) {
+          const msg = typeof err === 'string' ? err
+            : err instanceof Error ? err.message
+            : JSON.stringify(err)
+          setImageError(msg)
           setImageInfoList([])
-        } else {
-          setImageInfoList([])
+        } finally {
+          setImageLoading(false)
         }
       }
     } catch (err) {
@@ -98,6 +114,9 @@ function ConfigurePage() {
 
   const isVhdMode = applyMode === 'vhd' || applyMode === 'vhdx'
   const isUefiMode = bootMode === 'uefi_gpt' || bootMode === 'uefi_mbr'
+
+  // Check if image needs index selection but none selected
+  const needsIndexSelection = imageInfoList.length > 1 && selectedWimIndex === '0'
 
   return (
     <div className="configure-page">
@@ -116,27 +135,53 @@ function ConfigurePage() {
             placeholder={t('configure.selectImage')}
             className="image-path-input"
           />
-          <button onClick={handleSelectImage} className="btn-select">
-            {t('configure.selectImage')}
+          <button onClick={handleSelectImage} className="btn-select" disabled={imageLoading}>
+            {imageLoading ? t('messages.loading') : t('configure.selectImage')}
           </button>
         </div>
 
-        {/* WIM Index Selection */}
+        {/* Loading state */}
+        {imageLoading && (
+          <div className="image-loading">
+            {t('configure.loadingImageInfo')}
+          </div>
+        )}
+
+        {/* Error */}
+        {imageError && <div className="error-msg" style={{ marginTop: 12 }}>{imageError}</div>}
+
+        {/* Edition / WIM Index Selection */}
         {imageInfoList.length > 0 && (
-          <div className="wim-index-selector">
-            <label>{t('configure.wimIndex') || 'WIM Index'}</label>
-            <select
-              value={selectedWimIndex}
-              onChange={(e) => setSelectedWimIndex(e.target.value)}
-              className="select-input"
-            >
-              <option value="0">{t('configure.autoDetect') || 'Auto'}</option>
+          <div className="edition-selector">
+            <label className="edition-label">{t('configure.selectEdition')}</label>
+            <div className="edition-list">
               {imageInfoList.map((img) => (
-                <option key={img.index} value={String(img.index)}>
-                  {img.index}: {img.name}
-                </option>
+                <div
+                  key={img.index}
+                  className={`edition-item ${selectedWimIndex === String(img.index) ? 'selected' : ''}`}
+                  onClick={() => setSelectedWimIndex(String(img.index))}
+                >
+                  <div className="edition-radio">
+                    <input
+                      type="radio"
+                      name="wimIndex"
+                      checked={selectedWimIndex === String(img.index)}
+                      onChange={() => setSelectedWimIndex(String(img.index))}
+                    />
+                  </div>
+                  <div className="edition-info">
+                    <div className="edition-name">{img.name}</div>
+                    {img.description && img.description !== img.name && (
+                      <div className="edition-desc">{img.description}</div>
+                    )}
+                    {(img.size ?? 0) > 0 && (
+                      <div className="edition-size">{formatBytes(img.size ?? 0)}</div>
+                    )}
+                  </div>
+                  <div className="edition-index">#{img.index}</div>
+                </div>
               ))}
-            </select>
+            </div>
           </div>
         )}
       </section>
@@ -374,7 +419,7 @@ function ConfigurePage() {
       <div className="actions">
         <button
           className="btn-primary"
-          disabled={!selectedDisk || !imagePath}
+          disabled={!selectedDisk || !imagePath || needsIndexSelection}
           onClick={() => setCurrentPage('write')}
         >
           {t('configure.next')}

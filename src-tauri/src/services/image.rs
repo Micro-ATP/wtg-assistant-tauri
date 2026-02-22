@@ -1,6 +1,8 @@
 //! Image service - handles Windows image operations
 //! Translated from ImageOperation.cs
 
+#![allow(dead_code)]
+
 use crate::utils::command::CommandExecutor;
 use crate::models::ImageInfo;
 use crate::{AppError, Result};
@@ -12,28 +14,188 @@ use tracing::info;
 pub fn get_image_info(image_file: &str) -> Result<Vec<ImageInfo>> {
     info!("Getting image info for: {}", image_file);
 
-    let output = CommandExecutor::execute(
+    // For ISO files, mount first and find install.wim/install.esd inside
+    let ext = std::path::Path::new(image_file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if ext == "iso" {
+        return get_image_info_from_iso(image_file);
+    }
+
+    get_image_info_from_wim(image_file)
+}
+
+/// Get image info directly from a WIM/ESD file
+fn get_image_info_from_wim(wim_path: &str) -> Result<Vec<ImageInfo>> {
+    // Use execute_allow_fail because DISM may return non-zero even on success
+    // and we need to parse stdout regardless
+    let output = CommandExecutor::execute_allow_fail(
         "Dism.exe",
-        &["/Get-WimInfo", &format!("/WimFile:{}", image_file), "/english"],
+        &["/Get-WimInfo", &format!("/WimFile:{}", wim_path), "/english"],
     )?;
 
-    let re = Regex::new(r"Index : (\d+)[\s\S]*?Name : (.+)")
-        .map_err(|e| AppError::SystemError(e.to_string()))?;
+    info!("DISM output length: {} chars", output.len());
 
+    let images = parse_dism_output(&output)?;
+    if images.is_empty() {
+        // Include first 500 chars of DISM output for diagnosis
+        let preview: String = output.chars().take(500).collect();
+        return Err(AppError::ImageError(format!(
+            "No image indexes found. DISM output:\n{}",
+            preview.trim()
+        )));
+    }
+    Ok(images)
+}
+
+/// Mount an ISO, find install.wim/install.esd, get image info, then dismount
+#[cfg(target_os = "windows")]
+fn get_image_info_from_iso(iso_path: &str) -> Result<Vec<ImageInfo>> {
+    info!("Mounting ISO to read image info: {}", iso_path);
+
+    // Mount ISO using PowerShell
+    let _ = CommandExecutor::execute_allow_fail(
+        "powershell.exe",
+        &["-NoProfile", "-Command",
+          &format!("Mount-DiskImage -ImagePath '{}'", iso_path)],
+    );
+
+    // Wait a moment for mount to complete
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Get the drive letter of the mounted ISO
+    // Use a more robust approach: get volume via DiskImage association
+    let ps_script = format!(
+        "$img = Get-DiskImage -ImagePath '{}'; \
+         if ($img.Attached) {{ \
+           $vol = $img | Get-Volume; \
+           $vol.DriveLetter \
+         }}",
+        iso_path
+    );
+    let drive_output = CommandExecutor::execute_allow_fail(
+        "powershell.exe",
+        &["-NoProfile", "-Command", &ps_script],
+    )?;
+
+    let drive_letter = drive_output.trim().to_string();
+    if drive_letter.is_empty() {
+        dismount_iso(iso_path);
+        return Err(AppError::ImageError("Failed to get ISO drive letter".to_string()));
+    }
+
+    info!("ISO mounted at drive: {}:", drive_letter);
+
+    // Look for install.wim or install.esd
+    let wim_path = format!("{}:\\sources\\install.wim", drive_letter);
+    let esd_path = format!("{}:\\sources\\install.esd", drive_letter);
+
+    let target_path = if std::path::Path::new(&wim_path).exists() {
+        wim_path
+    } else if std::path::Path::new(&esd_path).exists() {
+        esd_path
+    } else {
+        dismount_iso(iso_path);
+        return Err(AppError::ImageError(
+            "Cannot find install.wim or install.esd in ISO".to_string(),
+        ));
+    };
+
+    info!("Found image file in ISO: {}", target_path);
+    let result = get_image_info_from_wim(&target_path);
+
+    // Dismount ISO
+    dismount_iso(iso_path);
+
+    result
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_image_info_from_iso(_iso_path: &str) -> Result<Vec<ImageInfo>> {
+    Err(AppError::ImageError(
+        "ISO mounting is only supported on Windows".to_string(),
+    ))
+}
+
+/// Dismount an ISO image
+#[cfg(target_os = "windows")]
+fn dismount_iso(iso_path: &str) {
+    info!("Dismounting ISO: {}", iso_path);
+    let _ = CommandExecutor::execute_allow_fail(
+        "powershell.exe",
+        &["-NoProfile", "-Command",
+          &format!("Dismount-DiskImage -ImagePath '{}'", iso_path)],
+    );
+}
+
+/// Parse DISM /Get-WimInfo output into ImageInfo list
+fn parse_dism_output(output: &str) -> Result<Vec<ImageInfo>> {
+    // Split output by "Index :" to process each image block separately
+    let blocks: Vec<&str> = output.split("Index : ").collect();
     let mut images = Vec::new();
-    for cap in re.captures_iter(&output) {
-        let index: u32 = cap[1].trim().parse().unwrap_or(1);
-        let name = cap[2].trim().to_string();
+
+    for block in blocks.iter().skip(1) {
+        // Parse index
+        let index: u32 = block
+            .lines()
+            .next()
+            .unwrap_or("1")
+            .trim()
+            .parse()
+            .unwrap_or(1);
+
+        // Parse name
+        let name = extract_field(block, "Name");
+
+        // Parse description
+        let description = extract_field(block, "Description");
+
+        // Parse size
+        let size = extract_size_field(block);
+
         images.push(ImageInfo {
             index,
             name,
-            description: String::new(),
-            size: 0,
+            description,
+            size,
         });
     }
 
     info!("Found {} image indexes", images.len());
     Ok(images)
+}
+
+/// Extract a field value from a DISM output block
+fn extract_field(block: &str, field_name: &str) -> String {
+    let prefix = format!("{} : ", field_name);
+    for line in block.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&prefix) {
+            return trimmed[prefix.len()..].trim().to_string();
+        }
+    }
+    String::new()
+}
+
+/// Extract the size field from a DISM output block and parse to bytes
+fn extract_size_field(block: &str) -> u64 {
+    for line in block.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Size : ") {
+            // Format: "Size : 9,338,967,521 bytes"
+            let size_str = trimmed["Size : ".len()..].trim();
+            let digits: String = size_str
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == ',' || *c == ' ')
+                .filter(|c| c.is_ascii_digit())
+                .collect();
+            return digits.parse().unwrap_or(0);
+        }
+    }
+    0
 }
 
 /// Auto-choose WIM index based on image contents

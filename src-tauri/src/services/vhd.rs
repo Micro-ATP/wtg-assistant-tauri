@@ -1,6 +1,8 @@
 //! VHD service - manages VHD/VHDX operations
 //! Translated from VHDOperation.cs
 
+#![allow(dead_code)]
+
 use crate::utils::command::{run_diskpart_script, wait_for_path, CommandExecutor};
 use crate::services::boot;
 use crate::models::{FirmwareType, BootMode};

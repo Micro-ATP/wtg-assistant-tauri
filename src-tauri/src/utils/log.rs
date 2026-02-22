@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use tracing::{error, info, warn};
 
 pub fn init_logger() {

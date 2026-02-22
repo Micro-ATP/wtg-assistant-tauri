@@ -1,0 +1,72 @@
+{
+  "common": {
+    "appName": "Windows To Go Assistant",
+    "version": "v2.0.0",
+    "home": "Home",
+    "configure": "Configure",
+    "write": "Write",
+    "benchmark": "Benchmark",
+    "settings": "Settings",
+    "help": "Help",
+    "about": "About"
+  },
+  "home": {
+    "title": "Windows To Go Assistant",
+    "subtitle": "Cross-platform WTG deployment utility",
+    "systemInfo": "System Information",
+    "os": "Operating System",
+    "architecture": "Architecture",
+    "cpuCount": "CPU Count",
+    "totalMemory": "Total Memory",
+    "availableMemory": "Available Memory"
+  },
+  "configure": {
+    "title": "Configure",
+    "selectDisk": "Select USB Disk",
+    "selectImage": "Select Windows Image",
+    "partitionLayout": "Partition Layout",
+    "bootSize": "Boot Partition Size",
+    "mbrLayout": "MBR Layout",
+    "gptLayout": "GPT Layout",
+    "next": "Next",
+    "cancel": "Cancel"
+  },
+  "write": {
+    "title": "Write",
+    "startWrite": "Start Writing",
+    "estimatedTime": "Estimated Time",
+    "writeSpeed": "Write Speed",
+    "progress": "Progress",
+    "completed": "Completed",
+    "failed": "Failed",
+    "paused": "Paused",
+    "resume": "Resume",
+    "cancel": "Cancel"
+  },
+  "benchmark": {
+    "title": "USB Benchmark",
+    "start": "Start Benchmark",
+    "readSpeed": "Read Speed",
+    "writeSpeed": "Write Speed",
+    "random4K": "Random 4K",
+    "sequential": "Sequential",
+    "results": "Benchmark Results"
+  },
+  "errors": {
+    "deviceNotFound": "Device not found",
+    "permissionDenied": "Permission denied",
+    "invalidParameter": "Invalid parameter",
+    "diskError": "Disk operation failed",
+    "imageError": "Image operation failed",
+    "commandFailed": "Command execution failed"
+  },
+  "messages": {
+    "loading": "Loading...",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Information",
+    "confirmOperation": "Are you sure you want to proceed?",
+    "diskWillBeFormatted": "The selected disk will be formatted. All data will be lost."
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "common": {
+    "appName": "Windows To Go 助手",
+    "version": "v2.0.0",
+    "home": "首頁",
+    "configure": "配置",
+    "write": "寫入",
+    "benchmark": "基準測試",
+    "settings": "設定",
+    "help": "說明",
+    "about": "關於"
+  },
+  "home": {
+    "title": "Windows To Go 助手",
+    "subtitle": "跨平台 WTG 部署工具",
+    "systemInfo": "系統資訊",
+    "os": "作業系統",
+    "architecture": "架構",
+    "cpuCount": "CPU 核心數",
+    "totalMemory": "總記憶體",
+    "availableMemory": "可用記憶體"
+  },
+  "configure": {
+    "title": "配置",
+    "selectDisk": "選擇 USB 磁碟",
+    "selectImage": "選擇 Windows 映像",
+    "partitionLayout": "分割區配置",
+    "bootSize": "開機分割區大小",
+    "mbrLayout": "MBR 配置",
+    "gptLayout": "GPT 配置",
+    "next": "下一步",
+    "cancel": "取消"
+  },
+  "write": {
+    "title": "寫入",
+    "startWrite": "開始寫入",
+    "estimatedTime": "預計時間",
+    "writeSpeed": "寫入速度",
+    "progress": "進度",
+    "completed": "已完成",
+    "failed": "失敗",
+    "paused": "已暫停",
+    "resume": "繼續",
+    "cancel": "取消"
+  },
+  "benchmark": {
+    "title": "USB 基準測試",
+    "start": "開始測試",
+    "readSpeed": "讀取速度",
+    "writeSpeed": "寫入速度",
+    "random4K": "隨機 4K",
+    "sequential": "連續",
+    "results": "測試結果"
+  },
+  "errors": {
+    "deviceNotFound": "找不到裝置",
+    "permissionDenied": "權限被拒絕",
+    "invalidParameter": "無效的參數",
+    "diskError": "磁碟操作失敗",
+    "imageError": "映像操作失敗",
+    "commandFailed": "命令執行失敗"
+  },
+  "messages": {
+    "loading": "載入中...",
+    "success": "成功",
+    "error": "錯誤",
+    "warning": "警告",
+    "info": "資訊",
+    "confirmOperation": "您確定要繼續嗎？",
+    "diskWillBeFormatted": "所選磁碟將被格式化。所有資料將遺失。"
+  }
+}

@@ -1,0 +1,67 @@
+[package]
+name = "wtg-tauri"
+version = "2.0.0"
+description = "Windows To Go Assistant - Cross-platform utility"
+authors = ["Micro-ATP"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = "2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.0", features = [
+    "shell-execute",
+    "dialog-open",
+    "dialog-save",
+    "fs-all",
+    "os-all",
+    "process-all"
+] }
+tokio = { version = "1.35", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+thiserror = "1.0"
+anyhow = "1.0"
+regex = "1.10"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Platform-specific dependencies
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [
+    "winuser",
+    "wmiutils",
+    "winerror",
+    "setupapi",
+    "fileapi",
+    "winbase"
+] }
+wmi = "0.13"
+windows = { version = "0.54", features = [
+    "System_Diagnostics_ToolHelp",
+    "Storage_FileSystem"
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+io-kit-sys = "0.4"
+objc = "0.2"
+objc-foundation = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+udev = "0.8"
+nix = { version = "0.27", features = ["ioctl", "mount"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[bin]]
+name = "wtg-tauri"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1

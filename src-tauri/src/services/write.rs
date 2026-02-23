@@ -11,6 +11,7 @@
 use crate::models::*;
 use crate::services::{diskpart, image, boot, vhd};
 use crate::utils::command::{self, CommandExecutor, wait_for_path};
+use crate::utils::first_char;
 use crate::{AppError, Result};
 use std::time::Instant;
 use tracing::{info, warn, error};
@@ -76,7 +77,7 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
 
 /// Inner write logic (separates error handling from cleanup)
 fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str) -> Result<()> {
-    let ud = format!("{}:\\", &config.target_disk.volume[..1]);
+    let ud = format!("{}:\\", first_char(&config.target_disk.volume));
     let disk_index = &config.target_disk.index;
     let volume_letter = &config.target_disk.volume;
     let drive_type = &config.target_disk.drive_type;
@@ -199,7 +200,7 @@ fn uefi_gpt_typical(
     )?;
 
     // Write boot files
-    let esp = format!("{}:\\", &esp_letter[..1]);
+    let esp = format!("{}:\\", first_char(esp_letter));
     boot::bcdboot_write_boot_file(ud, &esp, &FirmwareType::UEFI)?;
     boot::bcdedit_fix_boot_file_typical(&esp, ud, &FirmwareType::UEFI)?;
 
@@ -387,7 +388,7 @@ fn uefi_mbr_typical(
     )?;
 
     // Write boot files to ESP
-    let esp = format!("{}:\\", &esp_letter[..1]);
+    let esp = format!("{}:\\", first_char(esp_letter));
     boot::bcdboot_write_boot_file(ud, &esp, &FirmwareType::ALL)?;
     boot::bcdedit_fix_boot_file_typical(&esp, ud, &FirmwareType::UEFI)?;
 
@@ -553,14 +554,14 @@ fn write_vhd_boot_files(
     match config.boot_mode {
         BootMode::UefiGpt => {
             if let Some(esp) = esp_letter {
-                let esp_path = format!("{}:\\", &esp[..1]);
+                let esp_path = format!("{}:\\", first_char(esp));
                 boot::bcdboot_write_boot_file("V:\\", &esp_path, &FirmwareType::UEFI)?;
                 boot::bcdedit_fix_boot_file_vhd(&esp_path, ud, vhd_filename, &FirmwareType::UEFI)?;
             }
         }
         BootMode::UefiMbr => {
             if let Some(esp) = esp_letter {
-                let esp_path = format!("{}:\\", &esp[..1]);
+                let esp_path = format!("{}:\\", first_char(esp));
                 boot::bcdboot_write_boot_file("V:\\", &esp_path, &FirmwareType::ALL)?;
                 boot::bootice_write_mbr_pbr_and_act(&esp_path, app_files_path)?;
                 boot::bcdedit_fix_boot_file_vhd(&esp_path, ud, vhd_filename, &FirmwareType::UEFI)?;
@@ -597,13 +598,13 @@ fn fix_vhd_bcd(
     match config.boot_mode {
         BootMode::UefiGpt => {
             if let Some(esp) = esp_letter {
-                let esp_path = format!("{}:\\", &esp[..1]);
+                let esp_path = format!("{}:\\", first_char(esp));
                 boot::bcdedit_fix_boot_file_vhd(&esp_path, ud, vhd_filename, &FirmwareType::UEFI)?;
             }
         }
         BootMode::UefiMbr => {
             if let Some(esp) = esp_letter {
-                let esp_path = format!("{}:\\", &esp[..1]);
+                let esp_path = format!("{}:\\", first_char(esp));
                 boot::bcdedit_fix_boot_file_vhd(&esp_path, ud, vhd_filename, &FirmwareType::UEFI)?;
                 boot::bcdedit_fix_boot_file_vhd(&esp_path, ud, vhd_filename, &FirmwareType::BIOS)?;
             }

@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use crate::utils::command::CommandExecutor;
+use crate::utils::first_two_chars;
 use crate::models::ImageInfo;
 use crate::{AppError, Result};
 use regex::Regex;
@@ -247,7 +248,7 @@ fn auto_choose_esd_index(esd_path: &str) -> Result<String> {
 pub fn dism_apply_image(image_file: &str, target_disk: &str, wim_index: &str, compact_os: bool) -> Result<()> {
     info!("Applying image {} to {} (index: {}, compact: {})", image_file, target_disk, wim_index, compact_os);
 
-    let target = &target_disk[..2]; // e.g., "E:"
+    let target = first_two_chars(target_disk); // e.g., "E:"
 
     let mut args = vec![
         "/Apply-Image".to_string(),
@@ -285,7 +286,7 @@ pub fn imagex_apply(imagex_path: &str, image_file: &str, wim_index: &str, target
 pub fn wimboot_apply(source_image: &str, dest_disk: &str, wim_index: &str, apply_dir: &str) -> Result<()> {
     info!("WIMBoot applying {} (index: {})", source_image, wim_index);
 
-    let target = &apply_dir[..2];
+    let target = first_two_chars(apply_dir);
 
     // Export image with WIMBoot
     CommandExecutor::execute(
@@ -349,7 +350,7 @@ pub fn image_extra(
     app_files_path: &str,
     driver_path: Option<&str>,
 ) -> Result<()> {
-    let target = &image_letter[..2];
+    let target = first_two_chars(image_letter);
 
     // Add drivers if directory exists
     if let Some(drv_path) = driver_path {
@@ -375,7 +376,7 @@ pub fn image_extra(
         if std::path::Path::new(&uasp_path).exists() {
             let _ = CommandExecutor::execute_allow_fail(
                 &uasp_path,
-                &[target, &image_letter[..2]],
+                &[target, first_two_chars(image_letter)],
             );
         }
     }

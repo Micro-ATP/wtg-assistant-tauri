@@ -3,6 +3,7 @@
 
 use crate::models::FirmwareType;
 use crate::utils::command::CommandExecutor;
+use crate::utils::first_two_chars;
 use crate::{AppError, Result};
 use tracing::{info, warn};
 
@@ -13,7 +14,7 @@ pub fn bcdboot_write_boot_file(
     target_disk: &str,
     fw_type: &FirmwareType,
 ) -> Result<()> {
-    let target = &target_disk[..2]; // e.g., "E:"
+    let target = first_two_chars(target_disk); // e.g., "E:"
 
     let fw_flag = match fw_type {
         FirmwareType::ALL => "/f all",
@@ -58,7 +59,7 @@ pub fn bcdedit_fix_boot_file_typical(
         _ => "\\Boot\\BCD",
     };
 
-    let bcd_full_path = format!("{}{}", &bcd_disk[..2], bcd_path);
+    let bcd_full_path = format!("{}{}", first_two_chars(bcd_disk), bcd_path);
 
     // Check if BCD exists
     if !std::path::Path::new(&bcd_full_path).exists() {
@@ -66,8 +67,8 @@ pub fn bcdedit_fix_boot_file_typical(
         return Ok(());
     }
 
-    let bcd_disk_short = &bcd_disk[..2];
-    let osdevice_short = &osdevice[..2];
+    let bcd_disk_short = first_two_chars(bcd_disk);
+    let osdevice_short = first_two_chars(osdevice);
 
     info!("Fixing BCD: store={}, bootmgr={}, osdevice={}", bcd_full_path, bcd_disk_short, osdevice_short);
 
@@ -120,15 +121,15 @@ pub fn bcdedit_fix_boot_file_vhd(
         _ => "\\Boot\\BCD",
     };
 
-    let bcd_full_path = format!("{}{}", &bcd_disk[..2], bcd_path);
+    let bcd_full_path = format!("{}{}", first_two_chars(bcd_disk), bcd_path);
 
     if !std::path::Path::new(&bcd_full_path).exists() {
         warn!("BCD file not found: {}", bcd_full_path);
         return Ok(());
     }
 
-    let bcd_disk_short = &bcd_disk[..2];
-    let osdevice_short = &osdevice[..2];
+    let bcd_disk_short = first_two_chars(bcd_disk);
+    let osdevice_short = first_two_chars(osdevice);
 
     info!("Fixing BCD for VHD: store={}, vhd={}", bcd_full_path, vhd_filename);
 
@@ -185,7 +186,7 @@ pub fn bootice_mbr(target_disk: &str, app_files_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    let target = &target_disk[..2];
+    let target = first_two_chars(target_disk);
     info!("Writing MBR to {}", target);
 
     let _ = CommandExecutor::execute_allow_fail(
@@ -211,7 +212,7 @@ pub fn bootice_pbr(target_disk: &str, app_files_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    let target = &target_disk[..2];
+    let target = first_two_chars(target_disk);
     info!("Writing PBR to {}", target);
 
     let _ = CommandExecutor::execute_allow_fail(
@@ -237,7 +238,7 @@ pub fn bootice_act(target_disk: &str, app_files_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    let target = &target_disk[..2];
+    let target = first_two_chars(target_disk);
     info!("Activating partition {}", target);
 
     let _ = CommandExecutor::execute_allow_fail(

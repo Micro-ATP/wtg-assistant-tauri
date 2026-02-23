@@ -8,6 +8,15 @@ pub struct DiskInfo {
     pub size: u64,
     pub removable: bool,
     pub device: String,
+    /// Drive type string, e.g. "Removable", "Fixed"
+    #[serde(default)]
+    pub drive_type: String,
+    /// Disk number as string, e.g. "0", "1"
+    #[serde(default)]
+    pub index: String,
+    /// Volume/drive letter, e.g. "E"
+    #[serde(default)]
+    pub volume: String,
 }
 
 /// List all available disks

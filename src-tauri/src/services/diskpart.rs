@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use crate::utils::command::{run_diskpart_script, wait_for_path, CommandExecutor};
+use crate::utils::first_char;
 use crate::Result;
 
 /// Generate and execute GPT + UEFI partition script
@@ -47,7 +48,7 @@ pub fn diskpart_gpt_uefi(
         script.push_str("select partition 3\n");
     }
     script.push_str("format fs=ntfs quick\n");
-    script.push_str(&format!("assign letter={}\n", &volume_letter[..1]));
+    script.push_str(&format!("assign letter={}\n", first_char(volume_letter)));
 
     // Format additional partitions
     let start_partition = if is_removable { 3 } else { 4 };
@@ -71,7 +72,7 @@ pub fn diskpart_gpt_uefi(
     run_diskpart_script(&script)?;
 
     // Wait for the disk to become available
-    let disk_path = format!("{}:\\", &volume_letter[..1]);
+    let disk_path = format!("{}:\\", first_char(volume_letter));
     wait_for_path(&disk_path, 100, 100);
 
     Ok(())
@@ -105,7 +106,7 @@ pub fn diskpart_mbr_uefi(
     script.push_str("format fs=ntfs quick\n");
 
     if keep_drive_letter {
-        script.push_str(&format!("assign letter={}\n", &volume_letter[..1]));
+        script.push_str(&format!("assign letter={}\n", first_char(volume_letter)));
     } else {
         script.push_str("assign\n");
     }
@@ -137,7 +138,7 @@ pub fn diskpart_repartition(
 ) -> Result<()> {
     let mut script = String::new();
 
-    script.push_str(&format!("select volume {}\n", &volume_letter[..1]));
+    script.push_str(&format!("select volume {}\n", first_char(volume_letter)));
     script.push_str("clean\n");
     script.push_str("convert mbr\n");
 
@@ -151,7 +152,7 @@ pub fn diskpart_repartition(
     script.push_str("select partition 1\n");
     script.push_str("format fs=ntfs quick\n");
     script.push_str("active\n");
-    script.push_str(&format!("assign letter={}\n", &volume_letter[..1]));
+    script.push_str(&format!("assign letter={}\n", first_char(volume_letter)));
 
     for i in 0..valid_sizes.len().saturating_sub(1) {
         script.push_str(&format!("select partition {}\n", i + 2));
@@ -163,7 +164,7 @@ pub fn diskpart_repartition(
 
     run_diskpart_script(&script)?;
 
-    let disk_path = format!("{}:\\", &volume_letter[..1]);
+    let disk_path = format!("{}:\\", first_char(volume_letter));
     wait_for_path(&disk_path, 100, 100);
 
     Ok(())
@@ -194,7 +195,7 @@ pub fn assign_drive_letter(disk_index: &str, letter: &str) -> Result<()> {
 pub fn set_no_default_drive_letter(volume_letter: &str) -> Result<()> {
     let script = format!(
         "select volume {}\nattributes volume set nodefaultdriveletter\n",
-        &volume_letter[..1]
+        first_char(volume_letter)
     );
     run_diskpart_script(&script)?;
     Ok(())
@@ -204,7 +205,7 @@ pub fn set_no_default_drive_letter(volume_letter: &str) -> Result<()> {
 pub fn remove_drive_letter(volume_letter: &str) -> Result<()> {
     let script = format!(
         "select volume {}\nremove\nexit\n",
-        &volume_letter[..1]
+        first_char(volume_letter)
     );
     run_diskpart_script(&script)?;
     Ok(())
@@ -213,7 +214,7 @@ pub fn remove_drive_letter(volume_letter: &str) -> Result<()> {
 /// Quick format a drive as NTFS
 #[cfg(target_os = "windows")]
 pub fn format_ntfs(drive_letter: &str) -> Result<()> {
-    let cmd = format!("format {}:/FS:ntfs /q /V: /Y", &drive_letter[..1]);
+    let cmd = format!("format {}:/FS:ntfs /q /V: /Y", first_char(drive_letter));
     CommandExecutor::run_cmd(&cmd)?;
     Ok(())
 }

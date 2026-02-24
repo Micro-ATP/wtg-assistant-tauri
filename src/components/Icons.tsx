@@ -116,3 +116,11 @@ export const RefreshIcon: React.FC<IconProps> = ({ size = 24, color = 'currentCo
     <path d="M3.51 9a9 9 0 0 1 14.85-3.36M20.49 15a9 9 0 0 1-14.85 3.36" />
   </svg>
 )
+
+// Folder Icon
+export const FolderIcon: React.FC<IconProps> = ({ size = 20, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
+    <path d="M3 7h5l2 3h11v8a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1V7z" />
+    <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+  </svg>
+)

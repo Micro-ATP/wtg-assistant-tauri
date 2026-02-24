@@ -16,23 +16,23 @@
     "systemInfo": "系统信息",
     "os": "操作系统",
     "architecture": "架构",
+    "version": "版本",
+    "cpuModel": "CPU 型号",
     "cpuCount": "CPU 核心数",
     "totalMemory": "总内存",
     "availableMemory": "可用内存",
-    "version": "版本",
-    "cpuModel": "CPU 型号",
     "memoryCapacity": "内存容量",
     "deploy": "WTG 部署",
     "deployDesc": "配置 Windows To Go 部署参数",
     "benchmark": "基准测试",
-    "benchmarkDesc": "检测 USB 设备的读写性能",
+    "benchmarkDesc": "检测 USB 设备读写性能",
     "network": "虚拟网络",
     "networkDesc": "管理虚拟交换机、网络模式和上游网络"
   },
   "configure": {
     "title": "配置",
     "selectDisk": "选择 USB 磁盘",
-    "selectImage": "选择 Windows 镜像",
+    "selectImage": "选择 Windows 映像",
     "partitionLayout": "分区布局",
     "bootSize": "启动分区大小",
     "mbrLayout": "MBR 布局",
@@ -52,16 +52,23 @@
     "wimIndex": "WIM 索引",
     "autoDetect": "自动检测",
     "extraFeatures": "额外功能",
-    "blockLocalDisk": "屏蔽本地磁盘 (SAN Policy)",
+    "showAllDisks": "显示所有磁盘",
+    "blockLocalDisk": "阻止本地磁盘（SAN 策略）",
     "disableWinre": "禁用 WinRE",
     "skipOobe": "跳过 OOBE",
     "disableUasp": "禁用 UASP",
     "compactOs": "CompactOS 压缩",
     "dotnet35": ".NET Framework 3.5",
+    "enableBitlocker": "启用 Bitlocker",
+    "fixLetter": "修复驱动器号 (VHD)",
+    "wimboot": "WIMBoot",
+    "ntfsUefiSupport": "NTFS UEFI 支持",
     "noDefaultLetter": "不分配默认盘符",
+    "doNotFormat": "不重新分区/格式化磁盘",
     "repartition": "重新分区磁盘",
+    "driverPath": "驱动程序文件夹（可选）",
     "selectEdition": "选择 Windows 版本",
-    "loadingImageInfo": "正在读取镜像信息，请稍候..."
+    "loadingImageInfo": "正在读取映像信息，请稍候..."
   },
   "write": {
     "title": "写入",
@@ -84,8 +91,8 @@
     "idle": "空闲",
     "preparing": "准备中...",
     "partitioning": "正在分区...",
-    "applyingImage": "正在释放镜像...",
-    "writingBootFiles": "正在写入引导文件...",
+    "applyingImage": "正在应用映像...",
+    "writingBootFiles": "正在写入启动文件...",
     "fixingBcd": "正在修复 BCD...",
     "copyingVhd": "正在复制 VHD...",
     "applyingExtras": "正在应用额外功能...",
@@ -108,7 +115,7 @@
     "permissionDenied": "权限被拒绝",
     "invalidParameter": "无效的参数",
     "diskError": "磁盘操作失败",
-    "imageError": "镜像操作失败",
+    "imageError": "映像操作失败",
     "commandFailed": "命令执行失败"
   },
   "messages": {
@@ -117,7 +124,7 @@
     "error": "错误",
     "warning": "警告",
     "info": "信息",
-    "confirmOperation": "您确定要继续吗？",
-    "diskWillBeFormatted": "所选磁盘将被格式化。所有数据将丢失。"
+    "confirmOperation": "确定要继续吗？",
+    "diskWillBeFormatted": "所选磁盘将被格式化，所有数据将丢失。"
   }
 }

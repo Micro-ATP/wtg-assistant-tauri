@@ -52,6 +52,7 @@
     "wimIndex": "WIM Index",
     "autoDetect": "Auto",
     "extraFeatures": "Extra Features",
+    "showAllDisks": "Show all disks",
     "blockLocalDisk": "Block Local Disk (SAN Policy)",
     "disableWinre": "Disable WinRE",
     "skipOobe": "Skip OOBE",
@@ -121,3 +122,4 @@
     "diskWillBeFormatted": "The selected disk will be formatted. All data will be lost."
   }
 }
+

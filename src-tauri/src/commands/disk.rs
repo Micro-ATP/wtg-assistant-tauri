@@ -11,12 +11,18 @@ pub struct DiskInfo {
     /// Drive type string, e.g. "Removable", "Fixed"
     #[serde(default)]
     pub drive_type: String,
+    /// Media type, e.g. "SSD", "HDD"
+    #[serde(default)]
+    pub media_type: String,
     /// Disk number as string, e.g. "0", "1"
     #[serde(default)]
     pub index: String,
     /// Volume/drive letter, e.g. "E"
     #[serde(default)]
     pub volume: String,
+    /// Whether the disk is the system disk
+    #[serde(default)]
+    pub is_system: bool,
 }
 
 /// List all available disks

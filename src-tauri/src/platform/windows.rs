@@ -6,9 +6,21 @@ use tracing::info;
 /// PowerShell script to get disk info with volume letters.
 /// For each disk, we query its partitions → volumes → drive letters.
 const PS_LIST_DISKS: &str = r#"
-$disks = Get-Disk | Select-Object Number, FriendlyName, Size, BusType
+$physical = Get-PhysicalDisk | Select-Object FriendlyName, MediaType, SpindleSpeed
+$disks = Get-Disk | Select-Object Number, FriendlyName, Size, BusType, MediaType, IsBoot, IsSystem
 $result = @()
 foreach ($d in $disks) {
+    # Try to resolve media type (SSD/HDD)
+    $pd = $physical | Where-Object { $_.FriendlyName -eq $d.FriendlyName } | Select-Object -First 1
+    $media = $d.MediaType
+    if (-not $media -or $media -eq 'Unspecified' -or $media -eq '') {
+        if ($pd) { $media = $pd.MediaType }
+    }
+    if (-not $media -or $media -eq 'Unspecified' -or $media -eq '') {
+        if ($pd -and $pd.SpindleSpeed -eq 0) { $media = 'SSD' }
+    }
+    if (-not $media -or $media -eq '') { $media = 'HDD' }
+
     $volumes = Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue |
         Get-Volume -ErrorAction SilentlyContinue |
         Where-Object { $_.DriveLetter -ne $null -and $_.DriveLetter -ne '' } |
@@ -26,6 +38,9 @@ foreach ($d in $disks) {
         FriendlyName = $d.FriendlyName
         Size         = $d.Size
         BusType      = $d.BusType
+        MediaType    = $media
+        IsBoot       = $d.IsBoot
+        IsSystem     = $d.IsSystem
         BusTypeName  = $busName
         VolumeLetter = if ($vol) { [string]$vol } else { "" }
     }
@@ -75,6 +90,8 @@ fn parse_disk(v: &serde_json::Value) -> DiskInfo {
     let name = v["FriendlyName"].as_str().unwrap_or("Unknown").to_string();
     let size = v["Size"].as_u64().unwrap_or(0);
     let bus_type = v["BusType"].as_u64().unwrap_or(0);
+    let media_type_raw = v["MediaType"].as_str().unwrap_or("").to_string();
+    let is_system = v["IsSystem"].as_bool().unwrap_or(false) || v["IsBoot"].as_bool().unwrap_or(false);
     // BusType 7 = USB, 17 = USB (SD reader)
     let removable = bus_type == 7 || bus_type == 17;
     let device = format!("PhysicalDrive{}", number);
@@ -95,8 +112,21 @@ fn parse_disk(v: &serde_json::Value) -> DiskInfo {
         removable,
         device,
         drive_type,
+        media_type: normalize_media_type(&media_type_raw),
         index: number.to_string(),
         volume,
+        is_system,
+    }
+}
+
+fn normalize_media_type(raw: &str) -> String {
+    let up = raw.to_uppercase();
+    if up.contains("SSD") {
+        "SSD".to_string()
+    } else if up.contains("HDD") || up.contains("ROTATIONAL") {
+        "HDD".to_string()
+    } else {
+        "HDD".to_string()
     }
 }
 

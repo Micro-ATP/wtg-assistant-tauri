@@ -16,8 +16,10 @@ export interface DiskInfo {
   removable: boolean
   device: string
   drive_type?: string
+   media_type?: string
   index?: string
   volume?: string
+  is_system?: boolean
 }
 
 export type PartitionLayout = 'mbr' | 'gpt'

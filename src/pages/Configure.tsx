@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
 import { imageApi } from '../services/api'
-import { SpinnerIcon, RefreshIcon } from '../components/Icons'
+import { SpinnerIcon, RefreshIcon, FolderIcon } from '../components/Icons'
 import type { DiskInfo, BootMode, ApplyMode } from '../types'
 import './Configure.css'
 
@@ -35,7 +35,7 @@ function ConfigurePage() {
     efiPartitionSize,
     setEfiPartitionSize,
     extraFeatures,
-    toggleExtraFeature,
+    setExtraFeatures,
     imageInfoList,
     setImageInfoList,
     selectedWimIndex,
@@ -47,6 +47,7 @@ function ConfigurePage() {
   const [error, setError] = useState<string | null>(null)
   const [imageLoading, setImageLoading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [showAllDisks, setShowAllDisks] = useState(false)
 
   const loadDisks = async () => {
     try {
@@ -64,6 +65,15 @@ function ConfigurePage() {
   useEffect(() => {
     loadDisks()
   }, [])
+
+  const visibleDisks = showAllDisks ? disks : disks.filter((d) => d.removable)
+
+  const getMediaLabel = (disk: DiskInfo) => {
+    const media = (disk.media_type || '').toUpperCase()
+    if (media.includes('SSD')) return 'SSD'
+    if (media.includes('HDD')) return 'HDD'
+    return disk.removable ? 'USB' : 'HDD'
+  }
 
   const handleSelectImage = async () => {
     try {
@@ -118,6 +128,34 @@ function ConfigurePage() {
 
   // Check if image needs index selection but none selected
   const needsIndexSelection = imageInfoList.length > 1 && selectedWimIndex === '0'
+
+  const incompatible: Record<string, Array<keyof typeof extraFeatures>> = {
+    wimboot: ['compact_os'],
+    compact_os: ['wimboot'],
+  }
+
+  const handleToggleFeature = (key: keyof typeof extraFeatures) => {
+    const isOn = extraFeatures[key]
+    const next = { ...extraFeatures, [key]: !isOn }
+    if (!isOn && incompatible[key]) {
+      incompatible[key].forEach((conflict) => {
+        next[conflict] = false
+      })
+    }
+    setExtraFeatures(next)
+  }
+
+  const handleBrowseDriverPath = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({ directory: true })
+      if (selected) {
+        setExtraFeatures({ ...extraFeatures, driver_path: selected as string })
+      }
+    } catch (err) {
+      console.error('Failed to select driver folder:', err)
+    }
+  }
 
   return (
     <div className="configure-page">
@@ -192,6 +230,17 @@ function ConfigurePage() {
       <section className="config-card">
         <div className="card-header">
           <h2>{t('configure.selectDisk')}</h2>
+          <div className="toggle-all-disks">
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={showAllDisks}
+                onChange={(e) => setShowAllDisks(e.target.checked)}
+              />
+              <span className="slider" />
+            </label>
+            <span className="toggle-label">{t('configure.showAllDisks') || 'Show all disks'}</span>
+          </div>
           <button onClick={loadDisks} className="btn-refresh" disabled={loading} title={t('configure.refresh') || 'Refresh'}>
             {loading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
           </button>
@@ -200,20 +249,21 @@ function ConfigurePage() {
         {error && <div className="error-msg">{error}</div>}
 
         <div className="disk-list">
-          {disks.length === 0 && !loading ? (
+          {visibleDisks.length === 0 && !loading ? (
             <div className="empty-state">{t('errors.deviceNotFound')}</div>
           ) : (
-            disks.map((disk) => (
+            visibleDisks.map((disk) => (
               <div
                 key={disk.id}
                 className={`disk-item ${selectedDisk?.id === disk.id ? 'selected' : ''}`}
                 onClick={() => setSelectedDisk(disk)}
               >
-                <div className="disk-icon">{disk.removable ? 'USB' : 'HDD'}</div>
+                <div className="disk-icon">{getMediaLabel(disk)}</div>
                 <div className="disk-info">
                   <div className="disk-name">{disk.name}</div>
                   <div className="disk-details">
                     {disk.device} - {formatBytes(disk.size)}
+                    <span className="badge-removable">{getMediaLabel(disk)}</span>
                     {disk.removable && <span className="badge-removable">USB</span>}
                   </div>
                 </div>
@@ -350,70 +400,44 @@ function ConfigurePage() {
       <section className="config-card">
         <h2>{t('configure.extraFeatures') || 'Extra Features'}</h2>
         <div className="checkbox-grid">
-          <label className="checkbox-option">
+          {[
+            { key: 'block_local_disk', label: t('configure.blockLocalDisk') || 'Block Local Disk (SAN Policy)' },
+            { key: 'disable_winre', label: t('configure.disableWinre') || 'Disable WinRE' },
+            { key: 'skip_oobe', label: t('configure.skipOobe') || 'Skip OOBE' },
+            { key: 'disable_uasp', label: t('configure.disableUasp') || 'Disable UASP' },
+            { key: 'compact_os', label: t('configure.compactOs') || 'CompactOS' },
+            { key: 'install_dotnet35', label: t('configure.dotnet35') || '.NET Framework 3.5' },
+            { key: 'enable_bitlocker', label: t('configure.enableBitlocker') || 'Enable Bitlocker' },
+            { key: 'fix_letter', label: t('configure.fixLetter') || 'Fix Drive Letter (VHD)' },
+            { key: 'wimboot', label: t('configure.wimboot') || 'WIMBoot' },
+            { key: 'ntfs_uefi_support', label: t('configure.ntfsUefiSupport') || 'NTFS UEFI Support' },
+            { key: 'no_default_drive_letter', label: t('configure.noDefaultLetter') || 'No Default Drive Letter' },
+            { key: 'do_not_format', label: t('configure.doNotFormat') || 'Do NOT re-partition/format disk' },
+          ].map((item) => (
+            <label className="checkbox-option" key={item.key}>
+              <input
+                type="checkbox"
+                checked={(extraFeatures as any)[item.key]}
+                onChange={() => handleToggleFeature(item.key as keyof typeof extraFeatures)}
+              />
+              <span>{item.label}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="driver-path">
+          <label>{t('configure.driverPath') || 'Driver folder (optional)'}</label>
+          <div className="driver-path-input">
             <input
-              type="checkbox"
-              checked={extraFeatures.block_local_disk}
-              onChange={() => toggleExtraFeature('block_local_disk')}
+              type="text"
+              placeholder={t('configure.driverPath') || 'Driver folder (optional)'}
+              value={extraFeatures.driver_path || ''}
+              onChange={(e) => setExtraFeatures({ ...extraFeatures, driver_path: e.target.value })}
             />
-            <span>{t('configure.blockLocalDisk') || 'Block Local Disk (SAN Policy)'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.disable_winre}
-              onChange={() => toggleExtraFeature('disable_winre')}
-            />
-            <span>{t('configure.disableWinre') || 'Disable WinRE'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.skip_oobe}
-              onChange={() => toggleExtraFeature('skip_oobe')}
-            />
-            <span>{t('configure.skipOobe') || 'Skip OOBE'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.disable_uasp}
-              onChange={() => toggleExtraFeature('disable_uasp')}
-            />
-            <span>{t('configure.disableUasp') || 'Disable UASP'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.compact_os}
-              onChange={() => toggleExtraFeature('compact_os')}
-            />
-            <span>{t('configure.compactOs') || 'CompactOS'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.install_dotnet35}
-              onChange={() => toggleExtraFeature('install_dotnet35')}
-            />
-            <span>{t('configure.dotnet35') || '.NET Framework 3.5'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.no_default_drive_letter}
-              onChange={() => toggleExtraFeature('no_default_drive_letter')}
-            />
-            <span>{t('configure.noDefaultLetter') || 'No Default Drive Letter'}</span>
-          </label>
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={extraFeatures.repartition}
-              onChange={() => toggleExtraFeature('repartition')}
-            />
-            <span>{t('configure.repartition') || 'Repartition Disk'}</span>
-          </label>
+            <button className="btn-icon" type="button" onClick={handleBrowseDriverPath} title={t('configure.driverPath') || 'Browse folder'}>
+              <FolderIcon size={18} />
+            </button>
+          </div>
         </div>
       </section>
 

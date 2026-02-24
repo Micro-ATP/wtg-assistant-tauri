@@ -21,7 +21,13 @@
     "cpuCount": "CPU 核心數",
     "totalMemory": "總記憶體",
     "availableMemory": "可用記憶體",
-    "memoryCapacity": "記憶體容量"
+    "memoryCapacity": "記憶體容量",
+    "deploy": "WTG 部署",
+    "deployDesc": "配置 Windows To Go 部署參數",
+    "benchmark": "基準測試",
+    "benchmarkDesc": "偵測 USB 裝置讀寫效能",
+    "network": "虛擬網路",
+    "networkDesc": "管理虛擬交換器、網路模式與上游網路"
   },
   "configure": {
     "title": "配置",
@@ -46,20 +52,29 @@
     "wimIndex": "WIM 索引",
     "autoDetect": "自動偵測",
     "extraFeatures": "額外功能",
+    "showAllDisks": "顯示所有磁碟",
     "blockLocalDisk": "封鎖本機磁碟 (SAN Policy)",
     "disableWinre": "停用 WinRE",
-    "skipOobe": "跳過 OOBE",
+    "skipOobe": "略過 OOBE",
     "disableUasp": "停用 UASP",
     "compactOs": "CompactOS 壓縮",
     "dotnet35": ".NET Framework 3.5",
+    "enableBitlocker": "啟用 Bitlocker",
+    "fixLetter": "修復磁碟機代號 (VHD)",
+    "wimboot": "WIMBoot",
+    "ntfsUefiSupport": "NTFS UEFI 支援",
     "noDefaultLetter": "不指派預設磁碟機代號",
-    "repartition": "重新分割磁碟",
+    "doNotFormat": "不重新分區/格式化磁碟",
+    "repartition": "重新分區磁碟",
+    "driverPath": "驅動程式資料夾（可選）",
     "selectEdition": "選擇 Windows 版本",
     "loadingImageInfo": "正在讀取映像資訊，請稍候..."
   },
   "write": {
     "title": "寫入",
     "startWrite": "開始寫入",
+    "stopWrite": "停止寫入",
+    "back": "返回",
     "estimatedTime": "預計時間",
     "writeSpeed": "寫入速度",
     "progress": "進度",
@@ -110,6 +125,6 @@
     "warning": "警告",
     "info": "資訊",
     "confirmOperation": "您確定要繼續嗎？",
-    "diskWillBeFormatted": "所選磁碟將被格式化。所有資料將遺失。"
+    "diskWillBeFormatted": "所選磁碟將被格式化，所有資料將遺失。"
   }
 }

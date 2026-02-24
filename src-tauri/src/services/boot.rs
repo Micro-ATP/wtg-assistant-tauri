@@ -42,6 +42,18 @@ pub fn bcdboot_write_boot_file(
     ];
 
     info!("Running bcdboot with args: {:?}", args);
+    info!("  Source Windows: {}", source_windows);
+    info!("  Target disk: {}", target);
+    info!("  Firmware type: {}", fw_flag);
+
+    // Verify source Windows path exists before running bcdboot
+    if !std::path::Path::new(&source_windows).exists() {
+        warn!("Source Windows path does not exist: {}", source_windows);
+        return Err(AppError::CommandFailed(format!(
+            "Source Windows path not found: {}. Cannot run bcdboot.",
+            source_windows
+        )));
+    }
 
     // Execute bcdboot
     let result = CommandExecutor::execute_allow_fail("bcdboot.exe", &args);
@@ -84,14 +96,48 @@ fn validate_boot_files_created(target_disk: &str, fw_type: &FirmwareType) -> Res
         _ => format!("{}\\bootmgr", target_disk),
     };
 
+    info!("Validating boot files at target disk: {}", target_disk);
+    info!("  Expected BCD path: {}", bcd_path);
+    info!("  Expected bootmgr path: {}", bootmgr_path);
+
+    // Try to list files in the target directory for debugging
+    if let Ok(entries) = std::fs::read_dir(target_disk) {
+        info!("Files in target disk root ({}): ", target_disk);
+        for entry in entries {
+            if let Ok(entry) = entry {
+                if let Ok(metadata) = entry.metadata() {
+                    let file_name = entry.file_name().to_string_lossy().to_string();
+                    if metadata.is_dir() {
+                        info!("    [DIR] {}", file_name);
+                    } else {
+                        info!("    [FILE] {}", file_name);
+                    }
+                }
+            }
+        }
+    } else {
+        warn!("Could not read target disk directory: {}", target_disk);
+    }
+
     if Path::new(&bcd_path).exists() {
         info!("Boot files validation SUCCESS: BCD found at {}", bcd_path);
         Ok(())
     } else {
         warn!("Boot files validation FAILED: BCD not found at {}", bcd_path);
         warn!("Expected bootmgr at: {}", bootmgr_path);
+
+        // Try to check if the EFI directory itself exists
+        if fw_type == &FirmwareType::UEFI {
+            let efi_dir = format!("{}\\EFI", target_disk);
+            if Path::new(&efi_dir).exists() {
+                warn!("EFI directory exists, but BCD is missing");
+            } else {
+                warn!("EFI directory does not exist at {}", efi_dir);
+            }
+        }
+
         Err(AppError::CommandFailed(
-            format!("bcdboot completed but boot files not found at {}. Check if target partition is accessible.", bcd_path)
+            format!("bcdboot completed but boot files not found at {}. Check if target partition is accessible and has proper permissions.", bcd_path)
         ))
     }
 }

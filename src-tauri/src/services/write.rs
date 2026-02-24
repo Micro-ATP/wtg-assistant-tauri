@@ -806,38 +806,119 @@ fn fix_vhd_bcd(
 }
 
 /// Resolve ESP (EFI System Partition) letter after disk partitioning.
-/// If user specified one, use it. Otherwise, query via PowerShell.
+/// If user specified one, use it. Otherwise, query via multiple methods.
 fn resolve_esp_letter(disk_index: &str, user_efi_path: &Option<String>) -> String {
     if let Some(ref path) = user_efi_path {
         if !path.is_empty() {
+            info!("Using user-specified EFI path: {}", path);
             return path.clone();
         }
     }
 
-    // Query for FAT32 volumes on this disk (the ESP)
+    info!("=== Starting ESP letter detection for disk {}", disk_index);
+
     #[cfg(target_os = "windows")]
     {
-        if let Ok(output) = CommandExecutor::execute_allow_fail(
-            "powershell.exe",
-            &["-NoProfile", "-Command",
-              &format!(
-                  "Get-Partition -DiskNumber {} -ErrorAction SilentlyContinue | \
-                   Get-Volume -ErrorAction SilentlyContinue | \
-                   Where-Object {{ $_.FileSystemType -eq 'FAT32' -and $_.DriveLetter }} | \
-                   Select-Object -First 1 -ExpandProperty DriveLetter",
-                  disk_index
-              )],
-        ) {
-            let letter = output.trim().to_string();
-            if !letter.is_empty() && letter.len() == 1 {
-                info!("Found ESP letter: {}", letter);
-                return format!("{}:", letter);
+        // Method 1: Use wmic to list all volumes and their filesystem types
+        info!("Method 1: Using wmic to query logical disks...");
+        if let Ok(output) = CommandExecutor::run_cmd("wmic logicaldisk get name,filesystem") {
+            info!("WMIC logicaldisk output:\n{}", output);
+            // Parse output looking for FAT32 lines
+            // Output format:
+            // FileSystem  Name
+            // FAT32       G:
+            // NTFS        C:
+
+            for line in output.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let fs = parts[0].trim();
+                    let drive = parts.last().unwrap_or(&"");
+                    if fs.to_uppercase() == "FAT32" && drive.len() == 2 && drive.ends_with(':') {
+                        info!("✓ Found FAT32 volume via wmic: {}", drive);
+                        // Verify it exists and is accessible
+                        if std::path::Path::new(&format!("{}\\", drive)).exists() {
+                            info!("✓ Verified FAT32 partition is accessible: {}", drive);
+                            return drive.to_string();
+                        } else {
+                            warn!("FAT32 partition found but not accessible: {}", drive);
+                        }
+                    }
+                }
+            }
+            warn!("wmic method: no FAT32 volume found");
+        } else {
+            warn!("wmic method failed");
+        }
+
+        // Method 2: Use fsutil to list all volumes
+        info!("Method 2: Using fsutil to query volumes...");
+        if let Ok(output) = CommandExecutor::run_cmd("fsutil fsinfo drives") {
+            info!("FSUTIL drives output:\n{}", output);
+            // Output is like: "Drives: C:\ D:\ E:\ J:\ ..."
+            for drive_str in output.split_whitespace() {
+                if drive_str.len() >= 2 && (drive_str.starts_with(|c: char| c.is_alphabetic())) {
+                    // Extract drive letter (like "C:" from "C:\")
+                    let drive = if drive_str.contains(':') {
+                        &drive_str[..2]
+                    } else {
+                        continue;
+                    };
+
+                    // Check if drive exists
+                    if !std::path::Path::new(&format!("{}\\", drive)).exists() {
+                        info!("  Drive {} is not accessible", drive);
+                        continue;
+                    }
+
+                    info!("  Checking {}", drive);
+
+                    // Try to get filesystem type via fsutil
+                    let fsutil_cmd = format!("fsutil fsinfo volumeinfo {}", drive);
+                    if let Ok(vol_output) = CommandExecutor::run_cmd(&fsutil_cmd) {
+                        info!("    FSUTIL volumeinfo {}: {}", drive, vol_output);
+                        // Look for "FAT32" in output
+                        if vol_output.to_uppercase().contains("FAT32") {
+                            info!("✓ Found FAT32 partition via fsutil: {}", drive);
+                            return format!("{}:", drive);
+                        }
+                    }
+                }
+            }
+            warn!("fsutil method: no FAT32 volume found");
+        } else {
+            warn!("fsutil method failed");
+        }
+
+        // Method 3: Brute force - try all drive letters
+        info!("Method 3: Brute force scanning all drive letters...");
+        for drive_letter in b'A'..=b'Z' {
+            let drive = format!("{}:", drive_letter as char);
+            let drive_path = format!("{}\\", drive);
+
+            // Check if accessible
+            if !std::path::Path::new(&drive_path).exists() {
+                continue;
+            }
+
+            info!("  {} is accessible", drive);
+
+            // Try fsutil on this specific drive
+            if let Ok(vol_output) = CommandExecutor::run_cmd(&format!("fsutil fsinfo volumeinfo {}", drive)) {
+                if vol_output.to_uppercase().contains("FAT32") {
+                    info!("✓ Found FAT32 partition: {}", drive);
+                    return drive;
+                }
             }
         }
+
+        warn!("All ESP detection methods failed!");
     }
 
-    // Fallback
-    info!("Could not detect ESP letter, using X:");
+    // Final fallback
+    warn!("=== ESP letter detection failed. Defaulting to X: (WILL LIKELY FAIL)");
+    warn!("CRITICAL: Please manually check which drive letter the ESP partition is mounted to.");
+    warn!("Look in File Explorer or Device Manager to find the FAT32 partition.");
     "X:".to_string()
 }
 

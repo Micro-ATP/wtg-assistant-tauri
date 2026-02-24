@@ -55,6 +55,33 @@ pub fn bcdboot_write_boot_file(
         )));
     }
 
+    // Check if target partition is accessible before running bcdboot
+    info!("Checking if target partition {} is accessible...", target);
+    if !std::path::Path::new(target).exists() {
+        warn!("Target partition {} does not exist or is not accessible!", target);
+        return Err(AppError::CommandFailed(format!(
+            "Target partition {} is not accessible. Check if it's properly mounted and has read/write permissions.",
+            target
+        )));
+    }
+
+    // Try to create a test file to verify write access
+    let test_file = format!("{}\\__test_write_access__.tmp", target);
+    match std::fs::write(&test_file, b"test") {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_file);
+            info!("✓ Target partition {} is writable", target);
+        }
+        Err(e) => {
+            warn!("Target partition {} is NOT writable: {}", target, e);
+            return Err(AppError::CommandFailed(format!(
+                "Cannot write to target partition {}. Error: {}. \
+                 Make sure the partition is formatted, not read-only, and you have administrator permissions.",
+                target, e
+            )));
+        }
+    }
+
     // Execute bcdboot
     let result = CommandExecutor::execute_allow_fail("bcdboot.exe", &args);
 

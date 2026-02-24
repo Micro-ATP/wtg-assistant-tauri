@@ -3,6 +3,8 @@ import { useAppStore } from '../services/store'
 import { SettingsIcon, BenchmarkIcon } from '../components/Icons'
 import './Home.css'
 
+type HomeTargetPage = 'configure' | 'benchmark'
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -15,7 +17,13 @@ function HomePage() {
   const { t } = useTranslation()
   const { systemInfo, setCurrentPage } = useAppStore()
 
-  const featureCards = [
+  const featureCards: Array<{
+    id: string
+    page: HomeTargetPage
+    title: string
+    description: string
+    icon: typeof SettingsIcon
+  }> = [
     {
       id: 'configure',
       page: 'configure',
@@ -32,8 +40,8 @@ function HomePage() {
     },
   ]
 
-  const handleCardClick = (page: string) => {
-    setCurrentPage(page as any)
+  const handleCardClick = (page: HomeTargetPage) => {
+    setCurrentPage(page)
   }
 
   return (

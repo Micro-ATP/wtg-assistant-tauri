@@ -12,7 +12,6 @@ pub struct TaskManager {
 
 /// State of a write task
 pub struct TaskState {
-    pub task_id: String,
     pub cancel_flag: Arc<AtomicBool>,
 }
 
@@ -27,7 +26,6 @@ impl TaskManager {
     pub fn register_task(task_id: String) -> Arc<AtomicBool> {
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let state = TaskState {
-            task_id: task_id.clone(),
             cancel_flag: cancel_flag.clone(),
         };
 
@@ -47,6 +45,17 @@ impl TaskManager {
             }
         }
         false
+    }
+
+    /// Request cancellation of all active tasks
+    pub fn cancel_all_tasks() -> usize {
+        if let Ok(mgr) = GLOBAL_TASK_MANAGER.lock() {
+            for state in mgr.tasks.values() {
+                state.cancel_flag.store(true, Ordering::Relaxed);
+            }
+            return mgr.tasks.len();
+        }
+        0
     }
 
     /// Unregister a task (cleanup)

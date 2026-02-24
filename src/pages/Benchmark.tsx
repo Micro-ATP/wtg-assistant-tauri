@@ -4,8 +4,11 @@ import { benchmarkApi } from '../services/api'
 import { usePartitionList } from '../hooks/usePartitionList'
 import { useAppStore } from '../services/store'
 import { SpinnerIcon, RefreshIcon } from '../components/Icons'
-import type { BenchmarkResult as BenchResult } from '../types'
+import type { BenchmarkResult as BenchResult, DiskInfo } from '../types'
+import type { PartitionInfo } from '../hooks/usePartitionList'
 import './Benchmark.css'
+
+type BenchmarkMode = 'quick' | 'multithread' | 'fullwrite' | 'full'
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B'
@@ -21,17 +24,20 @@ function BenchmarkPage() {
   const { selectedDisk, setSelectedDisk } = useAppStore()
 
   const [running, setRunning] = useState(false)
-  const [modes, setModes] = useState<Array<'quick' | 'multithread' | 'full'>>(['quick'])
+  const [modes, setModes] = useState<BenchmarkMode[]>(['quick'])
   const [results, setResults] = useState<Record<string, BenchResult>>({})
   const [benchError, setBenchError] = useState<string | null>(null)
 
-  const visibleParts = useMemo(() => partitions, [partitions])
+  const visibleParts = useMemo(
+    () => partitions.filter((p) => /^[A-Z]$/i.test((p.drive_letter || '').trim())),
+    [partitions],
+  )
 
   const getMediaLabel = (media: string) => {
     const up = (media || '').toUpperCase()
-    if (up.includes('SSD')) return 'SSD'
-    if (up.includes('HDD')) return 'HDD'
-    return 'USB'
+    if (up.includes('SSD') || up === '4') return 'SSD'
+    if (up.includes('HDD') || up.includes('ROTATIONAL') || up === '3') return 'HDD'
+    return 'HDD'
   }
 
   const runModesSequential = async (targetPath: string) => {
@@ -43,6 +49,19 @@ function BenchmarkPage() {
     }
   }
 
+  const mapPartitionToDiskInfo = (partition: PartitionInfo): DiskInfo => ({
+    id: partition.drive_letter,
+    name: `${partition.label || 'Volume'} (${partition.drive_letter}:)`,
+    size: partition.size,
+    free: partition.free,
+    removable: false,
+    device: `Disk ${partition.disk_number}`,
+    drive_type: 'Partition',
+    index: String(partition.disk_number),
+    volume: partition.drive_letter,
+    media_type: partition.media_type,
+  })
+
   const handleStart = async () => {
     if (!selectedDisk || !selectedDisk.volume) {
       setBenchError(t('errors.deviceNotFound') || 'No disk selected')
@@ -53,8 +72,8 @@ function BenchmarkPage() {
       setRunning(true)
       setBenchError(null)
       await runModesSequential(targetPath)
-    } catch (err: any) {
-      setBenchError(err?.message || String(err))
+    } catch (err: unknown) {
+      setBenchError(err instanceof Error ? err.message : String(err))
     } finally {
       setRunning(false)
     }
@@ -73,7 +92,7 @@ function BenchmarkPage() {
       <section className="config-card">
         <div className="card-header">
           <h2>{t('configure.selectDisk')}</h2>
-          <button className="btn-refresh" onClick={refetch as any} disabled={loading}>
+          <button className="btn-refresh" onClick={() => void refetch()} disabled={loading}>
             {loading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
           </button>
         </div>
@@ -86,25 +105,13 @@ function BenchmarkPage() {
               <div
                 key={p.drive_letter}
                 className={`disk-item ${selectedDisk?.volume === p.drive_letter ? 'selected' : ''}`}
-                onClick={() =>
-                  setSelectedDisk({
-                    id: p.drive_letter,
-                    name: `${p.label || 'Volume'} (${p.drive_letter}:)`,
-                    size: p.size, free: p.free,
-                    removable: false,
-                    device: `Disk ${p.disk_number}`,
-                    drive_type: 'Partition',
-                    index: String(p.disk_number),
-                    volume: p.drive_letter,
-                    media_type: p.media_type,
-                  } as any)
-                }
+                onClick={() => setSelectedDisk(mapPartitionToDiskInfo(p))}
               >
                 <div className="disk-icon">{getMediaLabel(p.media_type)}</div>
                 <div className="disk-info">
                   <div className="disk-name">{p.label || 'Volume'}</div>
                   <div className="disk-details">
-                    {p.drive_letter}:\\ â€?{formatBytes(p.size)}
+                    {p.drive_letter}:\\ - {formatBytes(p.size)}
                     <span className="badge-removable">{getMediaLabel(p.media_type)}</span>
                   </div>
                 </div>
@@ -116,7 +123,7 @@ function BenchmarkPage() {
 
       <section className="config-card">
         <div className="mode-selector">
-          {(['quick', 'multithread', 'full'] as const).map((m) => (
+          {(['quick', 'multithread', 'fullwrite', 'full'] as const).map((m) => (
             <label key={m}>
               <input
                 type="checkbox"
@@ -235,4 +242,5 @@ function BenchmarkPage() {
 }
 
 export default BenchmarkPage
+
 

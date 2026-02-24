@@ -46,8 +46,12 @@ pub async fn start_write(config: WtgConfig, app_handle: tauri::AppHandle) -> Res
 pub async fn cancel_write(task_id: String) -> Result<()> {
     info!("Cancelling write operation: {}", task_id);
 
-    // Set the task cancellation flag
-    let cancelled = task_manager::TaskManager::cancel_task(&task_id);
+    // Set cancellation flag(s): cancel the target task, or all tasks when ID is empty.
+    let cancelled = if task_id.trim().is_empty() {
+        task_manager::TaskManager::cancel_all_tasks() > 0
+    } else {
+        task_manager::TaskManager::cancel_task(&task_id)
+    };
 
     // Kill active processes to interrupt the operation
     let _ = crate::utils::command::CommandExecutor::kill_process("dism.exe");
@@ -56,9 +60,17 @@ pub async fn cancel_write(task_id: String) -> Result<()> {
     let _ = crate::utils::command::CommandExecutor::kill_process("imagex_amd64.exe");
 
     if cancelled {
-        info!("Task cancellation signal set for: {}", task_id);
+        if task_id.trim().is_empty() {
+            info!("Cancellation signal set for all active tasks");
+        } else {
+            info!("Task cancellation signal set for: {}", task_id);
+        }
     } else {
-        info!("Task not found for cancellation: {}", task_id);
+        if task_id.trim().is_empty() {
+            info!("No active task found for cancellation");
+        } else {
+            info!("Task not found for cancellation: {}", task_id);
+        }
     }
 
     Ok(())

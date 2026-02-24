@@ -1,7 +1,7 @@
 //! Output capture and progress monitoring for command execution
 //! Mimics the old architecture's real-time output capture with progress reporting
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::process::{Command, Stdio};
 use crate::utils::progress::PROGRESS_REPORTER;
 use tracing::debug;
@@ -31,7 +31,12 @@ impl OutputCapture {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let stdout = child.stdout.take().unwrap();
+        let stdout = child.stdout.take().ok_or_else(|| {
+            Error::new(
+                ErrorKind::Other,
+                "Failed to capture stdout pipe from child process",
+            )
+        })?;
         let reader = BufReader::new(stdout);
         let mut line_count = 0;
         let mut last_progress = 0.0;

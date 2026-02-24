@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::Result;
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PartitionInfo {
@@ -12,12 +13,86 @@ pub struct PartitionInfo {
     pub media_type: String,
 }
 
+fn parse_u64(value: &serde_json::Value) -> u64 {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        .unwrap_or(0)
+}
+
+fn normalize_drive_letter(value: &serde_json::Value) -> String {
+    let raw = value
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches(':');
+    let mut chars = raw.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => c.to_ascii_uppercase().to_string(),
+        _ => String::new(),
+    }
+}
+
+fn normalize_media_type(value: &serde_json::Value) -> String {
+    if let Some(raw) = value.as_str() {
+        let up = raw.trim().to_uppercase();
+        if up.contains("SSD") || up == "4" {
+            return "SSD".to_string();
+        }
+        if up.contains("HDD") || up.contains("ROTATIONAL") || up == "3" {
+            return "HDD".to_string();
+        }
+        return "HDD".to_string();
+    }
+
+    match value.as_u64().unwrap_or(0) {
+        4 => "SSD".to_string(),
+        3 => "HDD".to_string(),
+        _ => "HDD".to_string(),
+    }
+}
+
+fn parse_partition_info(
+    v: &serde_json::Value,
+    disk_media_map: &HashMap<u32, String>,
+) -> Option<PartitionInfo> {
+    let drive_letter = normalize_drive_letter(&v["DriveLetter"]);
+    if drive_letter.is_empty() {
+        return None;
+    }
+
+    let disk_number = parse_u64(&v["DiskNumber"]) as u32;
+    let media_type = disk_media_map
+        .get(&disk_number)
+        .cloned()
+        .unwrap_or_else(|| normalize_media_type(&v["MediaType"]));
+
+    Some(PartitionInfo {
+        drive_letter,
+        label: v["Label"].as_str().unwrap_or("").to_string(),
+        filesystem: v["FileSystem"].as_str().unwrap_or("").to_string(),
+        size: parse_u64(&v["Size"]),
+        free: parse_u64(&v["Free"]),
+        disk_number,
+        media_type,
+    })
+}
+
 /// List mounted partitions with drive letters (Windows only)
 #[tauri::command]
 pub async fn list_partitions() -> Result<Vec<PartitionInfo>> {
     #[cfg(target_os = "windows")]
     {
         use crate::utils::command::CommandExecutor;
+
+        // Reuse the same disk detection source as Configure page to keep media type consistent.
+        let disks = crate::platform::windows::list_disks().await?;
+        let mut disk_media_map: HashMap<u32, String> = HashMap::new();
+        for d in disks {
+            if let Ok(n) = d.index.parse::<u32>() {
+                disk_media_map.insert(n, normalize_media_type(&serde_json::Value::String(d.media_type)));
+            }
+        }
 
         let ps = r#"
 Get-Partition | Where-Object DriveLetter -ne $null | ForEach-Object {
@@ -54,28 +129,16 @@ Get-Partition | Where-Object DriveLetter -ne $null | ForEach-Object {
         match parsed {
             serde_json::Value::Array(arr) => {
                 for v in arr {
-                    res.push(PartitionInfo {
-                        drive_letter: v["DriveLetter"].as_str().unwrap_or("").to_string(),
-                        label: v["Label"].as_str().unwrap_or("").to_string(),
-                        filesystem: v["FileSystem"].as_str().unwrap_or("").to_string(),
-                        size: v["Size"].as_u64().unwrap_or(0),
-                        free: v["Free"].as_u64().unwrap_or(0),
-                        disk_number: v["DiskNumber"].as_u64().unwrap_or(0) as u32,
-                        media_type: v["MediaType"].as_str().unwrap_or("").to_string(),
-                    });
+                    if let Some(info) = parse_partition_info(&v, &disk_media_map) {
+                        res.push(info);
+                    }
                 }
             }
             serde_json::Value::Object(_) => {
                 let v = parsed;
-                res.push(PartitionInfo {
-                    drive_letter: v["DriveLetter"].as_str().unwrap_or("").to_string(),
-                    label: v["Label"].as_str().unwrap_or("").to_string(),
-                    filesystem: v["FileSystem"].as_str().unwrap_or("").to_string(),
-                    size: v["Size"].as_u64().unwrap_or(0),
-                    free: v["Free"].as_u64().unwrap_or(0),
-                    disk_number: v["DiskNumber"].as_u64().unwrap_or(0) as u32,
-                    media_type: v["MediaType"].as_str().unwrap_or("").to_string(),
-                });
+                if let Some(info) = parse_partition_info(&v, &disk_media_map) {
+                    res.push(info);
+                }
             }
             _ => {}
         }

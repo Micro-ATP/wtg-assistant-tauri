@@ -131,7 +131,10 @@ export const writeApi = {
  * Benchmark API
  */
 export const benchmarkApi = {
-  run: async (targetPath: string, mode: 'quick' | 'multithread' | 'full' = 'quick'): Promise<BenchmarkResult> => {
+  run: async (
+    targetPath: string,
+    mode: 'quick' | 'multithread' | 'fullwrite' | 'full' = 'quick',
+  ): Promise<BenchmarkResult> => {
     try {
       const result = await invoke<BenchmarkResult>('run_benchmark', { targetPath, mode })
       return result

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from 'react-i18next'
 import Sidebar from './components/Sidebar'
@@ -13,6 +13,7 @@ import './App.css'
 function App() {
   const { t } = useTranslation()
   const { currentPage, setSystemInfo } = useAppStore()
+  const [showAlphaRiskModal, setShowAlphaRiskModal] = useState(true)
 
   useEffect(() => {
     const loadSystemInfo = async () => {
@@ -41,12 +42,45 @@ function App() {
     }
   }
 
+  const handleExitApp = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().close()
+    } catch (error) {
+      console.error('Failed to close app window:', error)
+      window.close()
+    }
+  }
+
   return (
     <div className="app-container">
       <Sidebar />
       <main className="main-content">
         {renderPage()}
       </main>
+
+      {showAlphaRiskModal && (
+        <div className="safety-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="alpha-risk-title">
+          <div className="safety-modal">
+            <h2 id="alpha-risk-title">{t('safety.alphaTitle')}</h2>
+            <p>{t('safety.alphaBody')}</p>
+            <div className="safety-modal-actions">
+              <button
+                className="btn-danger"
+                onClick={() => setShowAlphaRiskModal(false)}
+              >
+                {t('safety.ackContinue')}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={handleExitApp}
+              >
+                {t('safety.exitApp')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

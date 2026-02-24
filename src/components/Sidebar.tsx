@@ -2,8 +2,15 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
 import { useTheme } from '../hooks/useTheme'
-import { HomeIcon, SettingsIcon, WriteIcon, BenchmarkIcon, MenuIcon, CloseIcon, SunIcon, MoonIcon, WindowIcon } from './Icons'
+import { HomeIcon, SettingsIcon, WriteIcon, BenchmarkIcon, MenuIcon, CloseIcon, SunIcon, MoonIcon } from './Icons'
 import './Sidebar.css'
+
+type AppLanguage = 'en' | 'zh-Hans' | 'zh-Hant'
+const APP_LANGUAGES: AppLanguage[] = ['en', 'zh-Hans', 'zh-Hant']
+
+function isAppLanguage(value: string): value is AppLanguage {
+  return APP_LANGUAGES.includes(value as AppLanguage)
+}
 
 function Sidebar() {
   const { t, i18n } = useTranslation()
@@ -18,7 +25,7 @@ function Sidebar() {
     { id: 'benchmark', label: t('common.benchmark'), icon: BenchmarkIcon },
   ]
 
-  const handleLanguageChange = (lang: 'en' | 'zh-Hans' | 'zh-Hant') => {
+  const handleLanguageChange = (lang: AppLanguage) => {
     setLanguage(lang)
     i18n.changeLanguage(lang)
   }
@@ -89,7 +96,12 @@ function Sidebar() {
             <select
               id="lang-select"
               value={language}
-              onChange={(e) => handleLanguageChange(e.target.value as any)}
+              onChange={(e) => {
+                const nextLanguage = e.target.value
+                if (isAppLanguage(nextLanguage)) {
+                  handleLanguageChange(nextLanguage)
+                }
+              }}
             >
               <option value="zh-Hans">简体中文</option>
               <option value="zh-Hant">繁體中文</option>

@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
 import { imageApi } from '../services/api'
 import { SpinnerIcon, RefreshIcon, FolderIcon } from '../components/Icons'
-import type { DiskInfo, BootMode, ApplyMode } from '../types'
+import type { DiskInfo, BootMode, ApplyMode, ExtraFeatures } from '../types'
 import './Configure.css'
+
+type ToggleFeatureKey = Exclude<keyof ExtraFeatures, 'driver_path'>
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -49,7 +51,7 @@ function ConfigurePage() {
   const [imageError, setImageError] = useState<string | null>(null)
   const [showAllDisks, setShowAllDisks] = useState(false)
 
-  const loadDisks = async () => {
+  const loadDisks = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -60,11 +62,11 @@ function ConfigurePage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [setDisks])
 
   useEffect(() => {
-    loadDisks()
-  }, [])
+    void loadDisks()
+  }, [loadDisks])
 
   const visibleDisks = showAllDisks ? disks : disks.filter((d) => d.removable)
 
@@ -130,25 +132,55 @@ function ConfigurePage() {
   // Check if image needs index selection but none selected
   const needsIndexSelection = imageInfoList.length > 1 && selectedWimIndex === '0'
 
-  const incompatible: Record<string, Array<keyof typeof extraFeatures>> = {
+  const incompatible: Record<ToggleFeatureKey, ToggleFeatureKey[]> = {
     wimboot: ['compact_os'],
     compact_os: ['wimboot'],
+    install_dotnet35: [],
+    block_local_disk: [],
+    disable_winre: [],
+    skip_oobe: [],
+    disable_uasp: [],
+    enable_bitlocker: [],
+    fix_letter: [],
+    no_default_drive_letter: [],
+    ntfs_uefi_support: [],
+    do_not_format: [],
+    repartition: [],
   }
 
-  const handleToggleFeature = (key: keyof typeof extraFeatures) => {
+  const handleToggleFeature = (key: ToggleFeatureKey) => {
     const isOn = extraFeatures[key]
-    const next = { ...extraFeatures, [key]: !isOn }
+    const next = { ...extraFeatures, [key]: !isOn } as ExtraFeatures
+    const nextBooleans = next as Record<ToggleFeatureKey, boolean>
     if (!isOn && incompatible[key]) {
       incompatible[key].forEach((conflict) => {
-        next[conflict] = false
+        nextBooleans[conflict] = false
       })
     }
     // force off when current boot mode disallows it
     if (key === 'do_not_format' && !isLegacyMode) {
-      next.do_not_format = false
+      nextBooleans.do_not_format = false
     }
     setExtraFeatures(next)
   }
+
+  const featureItems: Array<{ key: ToggleFeatureKey; label: string; disabled?: boolean }> = [
+    { key: 'block_local_disk', label: t('configure.blockLocalDisk') || 'Block Local Disk (SAN Policy)' },
+    { key: 'disable_winre', label: t('configure.disableWinre') || 'Disable WinRE' },
+    { key: 'skip_oobe', label: t('configure.skipOobe') || 'Skip OOBE' },
+    { key: 'disable_uasp', label: t('configure.disableUasp') || 'Disable UASP' },
+    { key: 'compact_os', label: t('configure.compactOs') || 'CompactOS' },
+    { key: 'install_dotnet35', label: t('configure.dotnet35') || '.NET Framework 3.5' },
+    { key: 'fix_letter', label: t('configure.fixLetter') || 'Fix Drive Letter (VHD)' },
+    { key: 'wimboot', label: t('configure.wimboot') || 'WIMBoot' },
+    { key: 'ntfs_uefi_support', label: t('configure.ntfsUefiSupport') || 'NTFS UEFI Support' },
+    { key: 'no_default_drive_letter', label: t('configure.noDefaultLetter') || 'No Default Drive Letter' },
+    {
+      key: 'do_not_format',
+      label: t('configure.doNotFormat') || 'Do NOT re-partition/format disk',
+      disabled: !isLegacyMode,
+    },
+  ]
 
   // When切换到UEFI模式，禁用“不重新分区/格式化”
   useEffect(() => {
@@ -253,7 +285,7 @@ function ConfigurePage() {
             </label>
             <span className="toggle-label">{t('configure.showAllDisks') || 'Show all disks'}</span>
           </div>
-          <button onClick={loadDisks} className="btn-refresh" disabled={loading} title={t('configure.refresh') || 'Refresh'}>
+          <button onClick={() => void loadDisks()} className="btn-refresh" disabled={loading} title={t('configure.refresh') || 'Refresh'}>
             {loading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
           </button>
         </div>
@@ -412,31 +444,15 @@ function ConfigurePage() {
       <section className="config-card">
         <h2>{t('configure.extraFeatures') || 'Extra Features'}</h2>
         <div className="checkbox-grid">
-          {[
-            { key: 'block_local_disk', label: t('configure.blockLocalDisk') || 'Block Local Disk (SAN Policy)' },
-            { key: 'disable_winre', label: t('configure.disableWinre') || 'Disable WinRE' },
-            { key: 'skip_oobe', label: t('configure.skipOobe') || 'Skip OOBE' },
-            { key: 'disable_uasp', label: t('configure.disableUasp') || 'Disable UASP' },
-            { key: 'compact_os', label: t('configure.compactOs') || 'CompactOS' },
-            { key: 'install_dotnet35', label: t('configure.dotnet35') || '.NET Framework 3.5' },
-            { key: 'fix_letter', label: t('configure.fixLetter') || 'Fix Drive Letter (VHD)' },
-            { key: 'wimboot', label: t('configure.wimboot') || 'WIMBoot' },
-            { key: 'ntfs_uefi_support', label: t('configure.ntfsUefiSupport') || 'NTFS UEFI Support' },
-            { key: 'no_default_drive_letter', label: t('configure.noDefaultLetter') || 'No Default Drive Letter' },
-            {
-              key: 'do_not_format',
-              label: t('configure.doNotFormat') || 'Do NOT re-partition/format disk',
-              disabled: !isLegacyMode,
-            },
-          ].map((item) => (
+          {featureItems.map((item) => (
             <label className="checkbox-option" key={item.key}>
               <input
                 type="checkbox"
-                checked={(extraFeatures as any)[item.key]}
-                disabled={(item as any).disabled}
-                onChange={() => handleToggleFeature(item.key as keyof typeof extraFeatures)}
+                checked={extraFeatures[item.key]}
+                disabled={item.disabled}
+                onChange={() => handleToggleFeature(item.key)}
               />
-              <span className={(item as any).disabled ? 'option-disabled' : ''}>{item.label}</span>
+              <span className={item.disabled ? 'option-disabled' : ''}>{item.label}</span>
             </label>
           ))}
         </div>

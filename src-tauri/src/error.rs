@@ -39,6 +39,9 @@ pub enum AppError {
     #[error("UTF8 error: {0}")]
     Utf8Error(String),
 
+    #[error("Unsupported operation: {0}")]
+    Unsupported(String),
+
     #[error("Unknown error")]
     Unknown,
 }

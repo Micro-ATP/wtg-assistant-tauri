@@ -14,6 +14,84 @@
   animation: fadeIn var(--motion-duration-medium) var(--motion-easing-entrance);
 }
 
+.safety-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.safety-modal {
+  width: min(640px, 100%);
+  background: var(--color-surface-default);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-large);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+  padding: 24px;
+}
+
+.safety-modal h2 {
+  margin: 0 0 12px;
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-error);
+}
+
+.safety-modal p {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.safety-modal-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.safety-modal-actions .btn-danger,
+.safety-modal-actions .btn-secondary {
+  min-width: 136px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.safety-modal-actions .btn-danger {
+  background: #c50f1f;
+  color: #fff;
+  border-color: #9f0c19;
+}
+
+.safety-modal-actions .btn-danger:hover:not(:disabled) {
+  background: #a80a0a;
+}
+
+.safety-modal-actions .btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.safety-modal-actions .btn-secondary {
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-default);
+}
+
+.safety-modal-actions .btn-secondary:hover {
+  background: var(--color-background-tertiary);
+  border-color: var(--color-border-secondary);
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

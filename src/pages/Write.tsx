@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
-import type { WtgConfig, ImageType } from '../types'
+import type { WtgConfig, ImageType, WriteProgress } from '../types'
 import { writeApi } from '../services/api'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import './Write.css'
 
@@ -80,14 +80,16 @@ function WritePage() {
     setCurrentPage,
     setError,
   } = useAppStore()
+  const [showEraseConfirmModal, setShowEraseConfirmModal] = useState(false)
+  const [eraseConfirmCountdown, setEraseConfirmCountdown] = useState(0)
 
   // Set up event listener for real-time progress updates
   useEffect(() => {
     let unlisten: (() => void) | null = null
 
     const setupListener = async () => {
-      unlisten = await listen('write-progress', (event) => {
-        setWriteProgress(event.payload as any)
+      unlisten = await listen<WriteProgress>('write-progress', (event) => {
+        setWriteProgress(event.payload)
       })
     }
 
@@ -100,7 +102,26 @@ function WritePage() {
     }
   }, [setWriteProgress])
 
-  const handleStartWrite = async () => {
+  useEffect(() => {
+    if (!showEraseConfirmModal) {
+      return
+    }
+
+    setEraseConfirmCountdown(2)
+    const timer = setInterval(() => {
+      setEraseConfirmCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [showEraseConfirmModal])
+
+  const startWrite = async () => {
     if (!selectedDisk || !imagePath) return
 
     const imageType = getImageType(imagePath)
@@ -158,13 +179,22 @@ function WritePage() {
     }
   }
 
+  const handleStartWriteClick = () => {
+    if (!selectedDisk || !imagePath) return
+    setShowEraseConfirmModal(true)
+  }
+
+  const handleConfirmStartWrite = async () => {
+    if (eraseConfirmCountdown > 0) return
+    setShowEraseConfirmModal(false)
+    await startWrite()
+  }
+
   const handleCancel = async () => {
-    if (writeProgress?.task_id) {
-      try {
-        await writeApi.cancelWrite(writeProgress.task_id)
-      } catch (err) {
-        console.error('Cancel failed:', err)
-      }
+    try {
+      await writeApi.cancelWrite(writeProgress?.task_id || '')
+    } catch (err) {
+      console.error('Cancel failed:', err)
     }
   }
 
@@ -255,7 +285,7 @@ function WritePage() {
         {!isWriting && !isCompleted && (
           <button
             className="btn-primary btn-start"
-            onClick={handleStartWrite}
+            onClick={handleStartWriteClick}
             disabled={!selectedDisk || !imagePath}
           >
             {t('write.startWrite')}
@@ -277,6 +307,32 @@ function WritePage() {
           </button>
         )}
       </div>
+
+      {showEraseConfirmModal && (
+        <div className="safety-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="erase-confirm-title">
+          <div className="safety-modal">
+            <h2 id="erase-confirm-title">{t('safety.eraseTitle')}</h2>
+            <p>{t('safety.eraseBody')}</p>
+            <div className="safety-modal-actions">
+              <button
+                className="btn-danger"
+                onClick={handleConfirmStartWrite}
+                disabled={eraseConfirmCountdown > 0}
+              >
+                {eraseConfirmCountdown > 0
+                  ? `${t('safety.continueWrite')} (${eraseConfirmCountdown}s)`
+                  : t('safety.continueWrite')}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setShowEraseConfirmModal(false)}
+              >
+                {t('safety.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

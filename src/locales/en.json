@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "Windows To Go Assistant",
-    "version": "v2.0.0",
+    "version": "V0.0.1-Alpha",
     "home": "Home",
     "configure": "Configure",
     "write": "Write",
@@ -109,6 +109,7 @@
     "written": "Written data",
     "quick": "Quick (short)",
     "multithread": "Multi-thread (6 mins)",
+    "fullwrite": "Full-disk write",
     "full": "Full endurance (15 mins)"
   },
   "errors": {
@@ -127,6 +128,16 @@
     "info": "Information",
     "confirmOperation": "Are you sure you want to proceed?",
     "diskWillBeFormatted": "The selected disk will be formatted. All data will be lost."
+  },
+  "safety": {
+    "alphaTitle": "Risk Notice (Alpha Stage)",
+    "alphaBody": "This software is currently in Alpha testing and is provided \"as is\", without any express or implied warranty regarding stability, availability, fitness, or data integrity. During use, failures may occur, including write errors, partition damage, and permanent data loss. By continuing, you confirm that you have read, understood, and accepted all related risks. If you do not agree, exit now and stop using the software. The developers are not liable for data loss, service interruption, or any indirect damages. Do not operate on disks containing important data, and complete a full backup before proceeding.",
+    "ackContinue": "I understand, continue",
+    "exitApp": "Exit",
+    "eraseTitle": "Confirm Before Writing",
+    "eraseBody": "Continuing will perform partitioning, formatting, and system write operations on the target disk. This is a high-risk, irreversible action and may permanently erase all data on that disk. Please verify the target disk again and ensure your backup is complete.",
+    "continueWrite": "Continue",
+    "cancel": "Cancel"
   }
 }
 

@@ -1,0 +1,237 @@
+/* Fluent Design System - Color Palette
+ * Based on Microsoft's official Fluent Design System
+ * https://www.microsoft.com/design/fluent/
+ */
+
+:root {
+  /* === PRIMARY COLORS === */
+  /* Primary accent color - Blue */
+  --color-primary-brand: #0078d4;
+  --color-primary-light: #0063b1;
+  --color-primary-lighter: #106ebe;
+  --color-primary-lightest: #d0e7f8;
+
+  /* Secondary accent color - Teal */
+  --color-secondary-brand: #00b4d8;
+  --color-secondary-light: #0089a1;
+  --color-secondary-lighter: #0099bc;
+  --color-secondary-lightest: #cff3f8;
+
+  /* === SYSTEM COLORS === */
+  /* Success - Green */
+  --color-success: #107c10;
+  --color-success-background: #dffcf0;
+
+  /* Warning - Orange */
+  --color-warning: #d83b01;
+  --color-warning-background: #fed9d5;
+
+  /* Error - Red */
+  --color-error: #c50f1f;
+  --color-error-background: #fde7e9;
+
+  /* Information - Blue */
+  --color-info: #0078d4;
+  --color-info-background: #d9e9f7;
+
+  /* === NEUTRAL COLORS === */
+  /* Light theme neutrals */
+  --color-neutral-white: #ffffff;
+  --color-neutral-50: #f9f9f9;
+  --color-neutral-100: #f3f3f3;
+  --color-neutral-200: #ececec;
+  --color-neutral-300: #e1e1e1;
+  --color-neutral-400: #d0d0d0;
+  --color-neutral-500: #8a8a8a;
+  --color-neutral-600: #616161;
+  --color-neutral-700: #484848;
+  --color-neutral-800: #3f3f3f;
+  --color-neutral-900: #1f1f1f;
+  --color-neutral-black: #000000;
+
+  /* === TEXT COLORS === */
+  /* Light theme */
+  --color-text-primary: #242424;
+  --color-text-secondary: #616161;
+  --color-text-tertiary: #8a8a8a;
+  --color-text-disabled: #bfbfbf;
+  --color-text-on-brand: #ffffff;
+
+  /* Dark theme */
+  --color-text-primary-dark: #ffffff;
+  --color-text-secondary-dark: #d0d0d0;
+  --color-text-tertiary-dark: #8a8a8a;
+  --color-text-disabled-dark: #616161;
+
+  /* === BACKGROUND COLORS === */
+  /* Light theme */
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f3f3f3;
+  --color-background-tertiary: #ececec;
+  --color-background-canvas: #fafafa;
+
+  /* Dark theme */
+  --color-background-primary-dark: #1f1f1f;
+  --color-background-secondary-dark: #2b2b2b;
+  --color-background-tertiary-dark: #3f3f3f;
+  --color-background-canvas-dark: #1a1a1a;
+
+  /* === SURFACE & ELEVATION === */
+  /* Light theme */
+  --color-surface-default: #ffffff;
+  --color-surface-secondary: #f9f9f9;
+  --color-surface-tertiary: #f3f3f3;
+
+  /* Dark theme */
+  --color-surface-default-dark: #2b2b2b;
+  --color-surface-secondary-dark: #3f3f3f;
+  --color-surface-tertiary-dark: #484848;
+
+  /* === BORDER COLORS === */
+  --color-border-default: #e1e1e1;
+  --color-border-secondary: #d0d0d0;
+  --color-border-strong: #8a8a8a;
+
+  --color-border-default-dark: #484848;
+  --color-border-secondary-dark: #3f3f3f;
+  --color-border-strong-dark: #8a8a8a;
+
+  /* === SHADOW & OVERLAY === */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 4px rgba(0, 0, 0, 0.05);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-large: 0 12px 28px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 0, 0, 0.1);
+
+  --shadow-card-dark: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.25);
+  --shadow-medium-dark: 0 4px 8px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-large-dark: 0 12px 28px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.2);
+
+  /* === SCRIM (模糊背景) === */
+  --scrim-dark: rgba(0, 0, 0, 0.32);
+  --scrim-light: rgba(255, 255, 255, 0.5);
+
+  /* === MOTION & TRANSITIONS === */
+  --motion-duration-slow: 500ms;
+  --motion-duration-medium: 300ms;
+  --motion-duration-fast: 150ms;
+  --motion-duration-faster: 100ms;
+
+  --motion-easing-accelerate: cubic-bezier(0.87, 0, 0.13, 1);
+  --motion-easing-decelerate: cubic-bezier(0.13, 0.87, 1, 0.87);
+  --motion-easing-standard: cubic-bezier(0.17, 0.17, 0.83, 0.83);
+  --motion-easing-entrance: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --motion-easing-exit: cubic-bezier(0.7, 0, 0.84, 0);
+
+  /* === SPACING === */
+  --spacing-xxs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-xxl: 32px;
+  --spacing-3xl: 48px;
+
+  /* === BORDER RADIUS === */
+  --radius-none: 0;
+  --radius-small: 4px;
+  --radius-medium: 8px;
+  --radius-large: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* === TYPOGRAPHY === */
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  --font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New',
+    monospace;
+
+  /* Font sizes */
+  --font-size-caption: 12px;
+  --font-size-small: 13px;
+  --font-size-body: 14px;
+  --font-size-subtitle: 16px;
+  --font-size-title: 20px;
+  --font-size-display: 28px;
+  --font-size-hero: 40px;
+
+  /* Font weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Line heights */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* === FOCUS INDICATORS === */
+  --focus-outline: 2px solid var(--color-primary-brand);
+  --focus-outline-offset: 2px;
+}
+
+/* Dark theme overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-text-primary: var(--color-text-primary-dark);
+    --color-text-secondary: var(--color-text-secondary-dark);
+    --color-text-tertiary: var(--color-text-tertiary-dark);
+    --color-text-disabled: var(--color-text-disabled-dark);
+
+    --color-background-primary: var(--color-background-primary-dark);
+    --color-background-secondary: var(--color-background-secondary-dark);
+    --color-background-tertiary: var(--color-background-tertiary-dark);
+    --color-background-canvas: var(--color-background-canvas-dark);
+
+    --color-surface-default: var(--color-surface-default-dark);
+    --color-surface-secondary: var(--color-surface-secondary-dark);
+    --color-surface-tertiary: var(--color-surface-tertiary-dark);
+
+    --color-border-default: var(--color-border-default-dark);
+    --color-border-secondary: var(--color-border-secondary-dark);
+    --color-border-strong: var(--color-border-strong-dark);
+  }
+}
+
+/* Light theme explicit selector (for manual theme toggle) */
+html[data-theme="light"] {
+  --color-text-primary: #242424;
+  --color-text-secondary: #616161;
+  --color-text-tertiary: #8a8a8a;
+  --color-text-disabled: #bfbfbf;
+
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f3f3f3;
+  --color-background-tertiary: #ececec;
+  --color-background-canvas: #fafafa;
+
+  --color-surface-default: #ffffff;
+  --color-surface-secondary: #f9f9f9;
+  --color-surface-tertiary: #f3f3f3;
+
+  --color-border-default: #e1e1e1;
+  --color-border-secondary: #d0d0d0;
+  --color-border-strong: #8a8a8a;
+}
+
+/* Dark theme explicit selector */
+html[data-theme="dark"] {
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #d0d0d0;
+  --color-text-tertiary: #8a8a8a;
+  --color-text-disabled: #616161;
+
+  --color-background-primary: #1f1f1f;
+  --color-background-secondary: #2b2b2b;
+  --color-background-tertiary: #3f3f3f;
+  --color-background-canvas: #1a1a1a;
+
+  --color-surface-default: #2b2b2b;
+  --color-surface-secondary: #3f3f3f;
+  --color-surface-tertiary: #484848;
+
+  --color-border-default: #484848;
+  --color-border-secondary: #3f3f3f;
+  --color-border-strong: #8a8a8a;
+}

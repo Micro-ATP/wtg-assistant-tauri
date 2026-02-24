@@ -16,9 +16,12 @@
     "systemInfo": "系統資訊",
     "os": "作業系統",
     "architecture": "架構",
+    "version": "版本",
+    "cpuModel": "CPU 型號",
     "cpuCount": "CPU 核心數",
     "totalMemory": "總記憶體",
-    "availableMemory": "可用記憶體"
+    "availableMemory": "可用記憶體",
+    "memoryCapacity": "記憶體容量"
   },
   "configure": {
     "title": "配置",

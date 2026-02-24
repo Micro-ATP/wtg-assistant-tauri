@@ -113,6 +113,7 @@ export interface SystemInfo {
   os: string
   arch: string
   version: string
+  cpu_model: string
   total_memory: number
   available_memory: number
   cpu_count: number

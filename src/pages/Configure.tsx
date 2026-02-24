@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
 import { imageApi } from '../services/api'
+import { SpinnerIcon, RefreshIcon } from '../components/Icons'
 import type { DiskInfo, BootMode, ApplyMode } from '../types'
 import './Configure.css'
 
@@ -143,7 +144,8 @@ function ConfigurePage() {
         {/* Loading state */}
         {imageLoading && (
           <div className="image-loading">
-            {t('configure.loadingImageInfo')}
+            <SpinnerIcon size={18} color="currentColor" />
+            <span>{t('configure.loadingImageInfo')}</span>
           </div>
         )}
 
@@ -190,8 +192,8 @@ function ConfigurePage() {
       <section className="config-card">
         <div className="card-header">
           <h2>{t('configure.selectDisk')}</h2>
-          <button onClick={loadDisks} className="btn-refresh" disabled={loading}>
-            {loading ? t('messages.loading') : '\u21BB'}
+          <button onClick={loadDisks} className="btn-refresh" disabled={loading} title={t('configure.refresh') || 'Refresh'}>
+            {loading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
           </button>
         </div>
 

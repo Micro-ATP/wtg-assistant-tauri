@@ -18,7 +18,16 @@
     "architecture": "Architecture",
     "cpuCount": "CPU Count",
     "totalMemory": "Total Memory",
-    "availableMemory": "Available Memory"
+    "availableMemory": "Available Memory",
+    "version": "Version",
+    "cpuModel": "CPU Model",
+    "memoryCapacity": "Memory Capacity",
+    "deploy": "WTG Deployment",
+    "deployDesc": "Configure Windows To Go deployment parameters",
+    "benchmark": "Benchmark",
+    "benchmarkDesc": "Detect USB device read/write performance",
+    "network": "Virtual Network",
+    "networkDesc": "Manage virtual switches, network modes and upstream networks"
   },
   "configure": {
     "title": "Configure",

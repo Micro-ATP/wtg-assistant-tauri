@@ -1,31 +1,42 @@
-.app-header {
+/* === APP LAYOUT === */
+.app-container {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 20px;
-  border-bottom: 2px solid var(--border-color);
-  margin-bottom: 30px;
+  height: 100vh;
+  background: var(--color-background-primary);
+  color: var(--color-text-primary);
 }
 
-.app-header h1 {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-size: 28px;
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-3xl);
+  background: var(--color-background-primary);
+  animation: fadeIn var(--motion-duration-medium) var(--motion-easing-entrance);
 }
 
-.system-info {
-  animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
+@keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+  }
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .main-content {
+    padding: var(--spacing-2xl);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-content {
+    padding: var(--spacing-xl);
   }
 }

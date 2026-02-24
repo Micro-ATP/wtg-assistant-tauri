@@ -18,7 +18,16 @@
     "architecture": "架构",
     "cpuCount": "CPU 核心数",
     "totalMemory": "总内存",
-    "availableMemory": "可用内存"
+    "availableMemory": "可用内存",
+    "version": "版本",
+    "cpuModel": "CPU 型号",
+    "memoryCapacity": "内存容量",
+    "deploy": "WTG 部署",
+    "deployDesc": "配置 Windows To Go 部署参数",
+    "benchmark": "基准测试",
+    "benchmarkDesc": "检测 USB 设备的读写性能",
+    "network": "虚拟网络",
+    "networkDesc": "管理虚拟交换机、网络模式和上游网络"
   },
   "configure": {
     "title": "配置",

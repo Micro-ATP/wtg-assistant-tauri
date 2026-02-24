@@ -25,6 +25,7 @@ encoding_rs = "0.8"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 num_cpus = "1.16"
 sysinfo = "0.30"
+lazy_static = "1.4"
 
 # Platform-specific dependencies
 [target.'cfg(windows)'.dependencies]

@@ -1,5 +1,8 @@
 pub mod command;
 pub mod log;
+pub mod task_manager;
+pub mod progress;
+pub mod output_capture;
 
 use sysinfo::System;
 

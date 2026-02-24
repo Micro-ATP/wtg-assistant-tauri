@@ -57,6 +57,8 @@
   "write": {
     "title": "Write",
     "startWrite": "Start Writing",
+    "stopWrite": "Stop Write",
+    "back": "Back",
     "estimatedTime": "Estimated Time",
     "writeSpeed": "Write Speed",
     "progress": "Progress",

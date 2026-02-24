@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use crate::utils::command::CommandExecutor;
+use crate::utils::output_capture::OutputCapture;
 use crate::utils::first_two_chars;
 use crate::models::ImageInfo;
 use crate::{AppError, Result};
@@ -321,6 +322,48 @@ pub fn dism_apply_image(image_file: &str, target_disk: &str, wim_index: &str, co
 
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     CommandExecutor::execute("Dism.exe", &args_refs)?;
+
+    info!("Image applied successfully");
+    Ok(())
+}
+
+/// Apply a Windows image using DISM with real-time progress reporting
+/// Similar to dism_apply_image but emits progress events
+pub fn dism_apply_image_with_progress(
+    image_file: &str,
+    target_disk: &str,
+    wim_index: &str,
+    compact_os: bool,
+    task_id: &str,
+) -> Result<()> {
+    info!("Applying image {} to {} with progress (index: {}, compact: {})",
+          image_file, target_disk, wim_index, compact_os);
+
+    let target = first_two_chars(target_disk); // e.g., "E:"
+
+    // Create formatted strings first so they live long enough
+    let image_file_arg = format!("/ImageFile:{}", image_file);
+    let apply_dir_arg = format!("/ApplyDir:{}", target);
+    let index_arg = format!("/Index:{}", wim_index);
+
+    let mut args: Vec<&str> = vec![
+        "/Apply-Image",
+        &image_file_arg,
+        &apply_dir_arg,
+        &index_arg,
+    ];
+
+    if compact_os {
+        args.push("/compact");
+    }
+
+    let capture = OutputCapture::new(task_id, "applyingimage");
+    let status = capture.execute_with_capture("Dism.exe", &args)
+        .map_err(|e| AppError::ImageError(format!("DISM execution failed: {}", e)))?;
+
+    if status != 0 {
+        return Err(AppError::ImageError(format!("DISM failed with exit code: {}", status)));
+    }
 
     info!("Image applied successfully");
     Ok(())

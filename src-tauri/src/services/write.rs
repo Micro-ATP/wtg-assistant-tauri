@@ -12,8 +12,12 @@ use crate::models::*;
 use crate::services::{diskpart, image, boot, vhd};
 use crate::utils::command::{self, CommandExecutor, wait_for_path};
 use crate::utils::first_char;
+use crate::utils::task_manager;
+use crate::utils::progress::PROGRESS_REPORTER;
 use crate::{AppError, Result};
 use std::time::Instant;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tracing::{info, warn, error};
 
 /// Main write orchestrator
@@ -25,6 +29,9 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
     info!("Starting write operation: task_id={}", task_id);
     info!("Config: boot_mode={:?}, apply_mode={:?}", config.boot_mode, config.apply_mode);
 
+    // Register task and get cancellation flag
+    let cancel_flag = task_manager::TaskManager::register_task(task_id.clone());
+
     // Prevent system sleep
     command::prevent_sleep();
 
@@ -32,10 +39,13 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
     let _ = CommandExecutor::kill_process("dism.exe");
     let _ = CommandExecutor::kill_process("diskpart.exe");
 
-    let result = execute_write_inner(config, app_files_path, &task_id);
+    let result = execute_write_inner(config, app_files_path, &task_id, &cancel_flag);
 
     // Restore system sleep
     command::restore_sleep();
+
+    // Unregister task
+    task_manager::TaskManager::unregister_task(&task_id);
 
     let elapsed = start_time.elapsed().as_secs();
 
@@ -61,12 +71,24 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
             })
         }
         Err(e) => {
-            error!("Write failed: {}", e);
+            // Check if error was due to cancellation
+            let is_cancelled = task_manager::is_cancelled(&cancel_flag);
+            let status = if is_cancelled {
+                WriteStatus::Cancelled
+            } else {
+                WriteStatus::Failed
+            };
+
+            error!("Write operation ended: {}", e);
             Ok(WriteProgress {
                 task_id,
-                status: WriteStatus::Failed,
-                progress: 0.0,
-                message: format!("Write failed: {}", e),
+                status,
+                progress: if is_cancelled { 0.0 } else { 0.0 },
+                message: if is_cancelled {
+                    "Write operation cancelled".to_string()
+                } else {
+                    format!("Write failed: {}", e)
+                },
                 speed: 0.0,
                 elapsed_seconds: elapsed,
                 estimated_remaining_seconds: 0,
@@ -76,7 +98,12 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
 }
 
 /// Inner write logic (separates error handling from cleanup)
-fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str) -> Result<()> {
+fn execute_write_inner(
+    config: &WtgConfig,
+    app_files_path: &str,
+    task_id: &str,
+    cancel_flag: &Arc<AtomicBool>,
+) -> Result<()> {
     // Validate critical fields
     let disk_index = &config.target_disk.index;
     let volume_letter = &config.target_disk.volume;
@@ -104,6 +131,14 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
         ));
     }
 
+    // Check for cancellation
+    if task_manager::is_cancelled(cancel_flag) {
+        return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+    }
+
+    // Report: preparing
+    PROGRESS_REPORTER.report_status(task_id, 5.0, "Preparing write operation", "preparing");
+
     // Resolve actual image path — for ISO, mount and use the WIM/ESD inside
     let is_iso = config.image_path.to_lowercase().ends_with(".iso");
     let actual_image_path = if is_iso {
@@ -114,8 +149,16 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
     };
     info!("Actual image path for DISM: {}", actual_image_path);
 
+    // Check for cancellation before main write
+    if task_manager::is_cancelled(cancel_flag) {
+        if is_iso {
+            image::dismount_iso(&config.image_path);
+        }
+        return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+    }
+
     // Wrap the actual write in a closure so we can always dismount ISO on exit
-    let result = execute_write_with_image(config, &actual_image_path, app_files_path);
+    let result = execute_write_with_image(config, &actual_image_path, app_files_path, task_id, cancel_flag);
 
     // Always dismount ISO if we mounted one
     if is_iso {
@@ -126,7 +169,13 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
 }
 
 /// The actual write logic, using the resolved image path (WIM/ESD, not ISO)
-fn execute_write_with_image(config: &WtgConfig, image_path: &str, app_files_path: &str) -> Result<()> {
+fn execute_write_with_image(
+    config: &WtgConfig,
+    image_path: &str,
+    app_files_path: &str,
+    task_id: &str,
+    cancel_flag: &Arc<AtomicBool>,
+) -> Result<()> {
     let disk_index = &config.target_disk.index;
     let volume_letter = &config.target_disk.volume;
     let drive_type = &config.target_disk.drive_type;
@@ -140,10 +189,16 @@ fn execute_write_with_image(config: &WtgConfig, image_path: &str, app_files_path
 
     let partition_sizes: Vec<u32> = config.partition_config.extra_partition_sizes.clone();
 
+    // Check for cancellation at the start of each boot mode
     match config.boot_mode {
         BootMode::UefiGpt => {
             // UEFI + GPT mode
+            if task_manager::is_cancelled(cancel_flag) {
+                return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+            }
             info!("Starting UEFI+GPT partition");
+            PROGRESS_REPORTER.report_status(task_id, 8.0, "Partitioning disk", "partitioning");
+
             let resolved_ud = diskpart::diskpart_gpt_uefi(
                 &config.efi_partition_size,
                 disk_index,
@@ -159,21 +214,40 @@ fn execute_write_with_image(config: &WtgConfig, image_path: &str, app_files_path
                 wait_for_path(&ud, 100, 100);
             }
 
+            // Report partitioning complete
+            PROGRESS_REPORTER.report_status(task_id, 20.0, "Partitioning complete", "partitioning");
+
+            // Check for cancellation before applying image
+            if task_manager::is_cancelled(cancel_flag) {
+                return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+            }
+
             // Get ESP letter — after partitioning, query for the FAT32 partition
             let esp_letter = resolve_esp_letter(disk_index, &config.efi_partition_path);
 
+            // Report applying image
+            PROGRESS_REPORTER.report_status(task_id, 25.0, "Applying Windows image", "applyingimage");
+
             match config.apply_mode {
                 ApplyMode::Legacy => {
-                    uefi_gpt_typical(config, image_path, &ud, &esp_letter, app_files_path)?;
+                    uefi_gpt_typical(config, image_path, &ud, &esp_letter, app_files_path, task_id)?;
                 }
                 ApplyMode::VHD | ApplyMode::VHDX => {
-                    uefi_gpt_vhd_vhdx(config, image_path, &ud, &esp_letter, app_files_path)?;
+                    uefi_gpt_vhd_vhdx(config, image_path, &ud, &esp_letter, app_files_path, task_id)?;
                 }
             }
+
+            // Report image applied
+            PROGRESS_REPORTER.report_status(task_id, 75.0, "Image applied, writing boot files", "writingbootfiles");
         }
         BootMode::UefiMbr => {
             // UEFI + MBR mode
+            if task_manager::is_cancelled(cancel_flag) {
+                return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+            }
             info!("Starting UEFI+MBR partition");
+            PROGRESS_REPORTER.report_status(task_id, 8.0, "Partitioning disk", "partitioning");
+
             diskpart::diskpart_mbr_uefi(
                 &config.efi_partition_size,
                 disk_index,
@@ -190,20 +264,38 @@ fn execute_write_with_image(config: &WtgConfig, image_path: &str, app_files_path
                 ud
             };
 
+            // Report partitioning complete
+            PROGRESS_REPORTER.report_status(task_id, 20.0, "Partitioning complete", "partitioning");
+
+            // Check for cancellation before applying image
+            if task_manager::is_cancelled(cancel_flag) {
+                return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+            }
+
             let esp_letter = resolve_esp_letter(disk_index, &config.efi_partition_path);
+
+            // Report applying image
+            PROGRESS_REPORTER.report_status(task_id, 25.0, "Applying Windows image", "applyingimage");
 
             match config.apply_mode {
                 ApplyMode::Legacy => {
-                    uefi_mbr_typical(config, image_path, &ud, &esp_letter, app_files_path)?;
+                    uefi_mbr_typical(config, image_path, &ud, &esp_letter, app_files_path, task_id)?;
                 }
                 ApplyMode::VHD | ApplyMode::VHDX => {
-                    uefi_mbr_vhd_vhdx(config, image_path, &ud, &esp_letter, app_files_path)?;
+                    uefi_mbr_vhd_vhdx(config, image_path, &ud, &esp_letter, app_files_path, task_id)?;
                 }
             }
+
+            // Report image applied
+            PROGRESS_REPORTER.report_status(task_id, 75.0, "Image applied, writing boot files", "writingbootfiles");
         }
         BootMode::NonUefi => {
             // Non-UEFI (Legacy) mode
+            if task_manager::is_cancelled(cancel_flag) {
+                return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+            }
             info!("Starting Non-UEFI partition");
+            PROGRESS_REPORTER.report_status(task_id, 8.0, "Partitioning/formatting disk", "partitioning");
 
             if config.extra_features.repartition {
                 diskpart::diskpart_repartition(volume_letter, &partition_sizes)?;
@@ -211,14 +303,28 @@ fn execute_write_with_image(config: &WtgConfig, image_path: &str, app_files_path
                 diskpart::format_ntfs(volume_letter)?;
             }
 
+            // Report partitioning/formatting complete
+            PROGRESS_REPORTER.report_status(task_id, 20.0, "Disk prepared, applying image", "partitioning");
+
+            // Check for cancellation before applying image
+            if task_manager::is_cancelled(cancel_flag) {
+                return Err(AppError::SystemError("Write operation cancelled by user".to_string()));
+            }
+
+            // Report applying image
+            PROGRESS_REPORTER.report_status(task_id, 25.0, "Applying Windows image", "applyingimage");
+
             match config.apply_mode {
                 ApplyMode::Legacy => {
-                    non_uefi_typical(config, image_path, &ud, app_files_path)?;
+                    non_uefi_typical(config, image_path, &ud, app_files_path, task_id)?;
                 }
                 ApplyMode::VHD | ApplyMode::VHDX => {
-                    non_uefi_vhd_vhdx(config, image_path, &ud, app_files_path)?;
+                    non_uefi_vhd_vhdx(config, image_path, &ud, app_files_path, task_id)?;
                 }
             }
+
+            // Report image applied
+            PROGRESS_REPORTER.report_status(task_id, 75.0, "Image applied, verifying", "verifying");
         }
     }
 
@@ -234,6 +340,7 @@ fn uefi_gpt_typical(
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
+    task_id: &str,
 ) -> Result<()> {
     info!("Write mode: UEFI+GPT Typical");
 
@@ -242,9 +349,9 @@ fn uefi_gpt_typical(
         enable_bitlocker(ud, app_files_path)?;
     }
 
-    // Auto-choose WIM index and apply image
+    // Auto-choose WIM index and apply image with progress reporting
     let wim_index = image::auto_choose_wim_index(image_path, &config.wim_index)?;
-    image::dism_apply_image(image_path, ud, &wim_index, config.extra_features.compact_os)?;
+    image::dism_apply_image_with_progress(image_path, ud, &wim_index, config.extra_features.compact_os, task_id)?;
 
     // Verify system files
     if !image::verify_system_files(ud) {
@@ -284,13 +391,14 @@ fn uefi_gpt_vhd_vhdx(
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
+    task_id: &str,
 ) -> Result<()> {
     info!("Write mode: UEFI+GPT VHD/VHDX");
 
     let vhd_config = config.vhd_config.as_ref()
         .ok_or_else(|| AppError::InvalidParameter("VHD config required for VHD mode".to_string()))?;
 
-    execute_vhd_workflow(config, image_path, ud, Some(esp_letter), app_files_path, vhd_config)?;
+    execute_vhd_workflow(config, image_path, ud, Some(esp_letter), app_files_path, task_id, vhd_config)?;
 
     // Remove ESP letter
     let _ = diskpart::remove_drive_letter(esp_letter);
@@ -313,6 +421,7 @@ fn non_uefi_typical(
     image_path: &str,
     ud: &str,
     app_files_path: &str,
+    _task_id: &str,
 ) -> Result<()> {
     info!("Write mode: Non-UEFI Typical");
 
@@ -387,13 +496,14 @@ fn non_uefi_vhd_vhdx(
     image_path: &str,
     ud: &str,
     app_files_path: &str,
+    task_id: &str,
 ) -> Result<()> {
     info!("Write mode: Non-UEFI VHD/VHDX");
 
     let vhd_config = config.vhd_config.as_ref()
         .ok_or_else(|| AppError::InvalidParameter("VHD config required for VHD mode".to_string()))?;
 
-    execute_vhd_workflow(config, image_path, ud, None, app_files_path, vhd_config)?;
+    execute_vhd_workflow(config, image_path, ud, None, app_files_path, task_id, vhd_config)?;
 
     // Write MBR/PBR
     boot::bootice_write_mbr_pbr_and_act(ud, app_files_path)?;
@@ -417,6 +527,7 @@ fn uefi_mbr_typical(
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
+    _task_id: &str,
 ) -> Result<()> {
     info!("Write mode: UEFI+MBR Typical");
 
@@ -476,13 +587,14 @@ fn uefi_mbr_vhd_vhdx(
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
+    task_id: &str,
 ) -> Result<()> {
     info!("Write mode: UEFI+MBR VHD/VHDX");
 
     let vhd_config = config.vhd_config.as_ref()
         .ok_or_else(|| AppError::InvalidParameter("VHD config required for VHD mode".to_string()))?;
 
-    execute_vhd_workflow(config, image_path, ud, Some(esp_letter), app_files_path, vhd_config)?;
+    execute_vhd_workflow(config, image_path, ud, Some(esp_letter), app_files_path, task_id, vhd_config)?;
 
     // Remove ESP letter
     let _ = diskpart::remove_drive_letter(esp_letter);
@@ -506,6 +618,7 @@ fn execute_vhd_workflow(
     ud: &str,
     esp_letter: Option<&str>,
     app_files_path: &str,
+    _task_id: &str,
     vhd_config: &VhdConfig,
 ) -> Result<()> {
     let vhd_filename = format!("{}.{}", vhd_config.filename, vhd_config.extension);

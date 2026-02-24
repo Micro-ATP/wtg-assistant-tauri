@@ -57,6 +57,8 @@
   "write": {
     "title": "写入",
     "startWrite": "开始写入",
+    "stopWrite": "停止写入",
+    "back": "返回",
     "estimatedTime": "预计时间",
     "writeSpeed": "写入速度",
     "progress": "进度",

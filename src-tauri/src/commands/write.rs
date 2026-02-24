@@ -2,6 +2,8 @@
 
 use crate::models::{WtgConfig, WriteProgress, ImageInfo};
 use crate::services;
+use crate::utils::task_manager;
+use crate::utils::progress::PROGRESS_REPORTER;
 use crate::Result;
 use tracing::info;
 
@@ -20,8 +22,11 @@ pub async fn get_image_info(image_path: String) -> Result<Vec<ImageInfo>> {
 
 /// Start a WTG write operation
 #[tauri::command]
-pub async fn start_write(config: WtgConfig) -> Result<WriteProgress> {
+pub async fn start_write(config: WtgConfig, app_handle: tauri::AppHandle) -> Result<WriteProgress> {
     info!("Starting write operation with config: {:?}", config.boot_mode);
+
+    // Set app handle for progress reporting
+    PROGRESS_REPORTER.set_app_handle(app_handle);
 
     // Determine app files path
     let app_files_path = std::env::temp_dir().join("WTGA").to_string_lossy().to_string();
@@ -40,10 +45,22 @@ pub async fn start_write(config: WtgConfig) -> Result<WriteProgress> {
 #[tauri::command]
 pub async fn cancel_write(task_id: String) -> Result<()> {
     info!("Cancelling write operation: {}", task_id);
-    // In a full implementation, this would signal the write task to stop
-    // For now, we kill the active processes
+
+    // Set the task cancellation flag
+    let cancelled = task_manager::TaskManager::cancel_task(&task_id);
+
+    // Kill active processes to interrupt the operation
     let _ = crate::utils::command::CommandExecutor::kill_process("dism.exe");
     let _ = crate::utils::command::CommandExecutor::kill_process("diskpart.exe");
+    let _ = crate::utils::command::CommandExecutor::kill_process("imagex_x86.exe");
+    let _ = crate::utils::command::CommandExecutor::kill_process("imagex_amd64.exe");
+
+    if cancelled {
+        info!("Task cancellation signal set for: {}", task_id);
+    } else {
+        info!("Task not found for cancellation: {}", task_id);
+    }
+
     Ok(())
 }
 

@@ -2,6 +2,8 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
 import type { WtgConfig, ImageType } from '../types'
 import { writeApi } from '../services/api'
+import { useEffect } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import './Write.css'
 
 function getImageType(path: string): ImageType {
@@ -78,6 +80,25 @@ function WritePage() {
     setCurrentPage,
     setError,
   } = useAppStore()
+
+  // Set up event listener for real-time progress updates
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+
+    const setupListener = async () => {
+      unlisten = await listen('write-progress', (event) => {
+        setWriteProgress(event.payload as any)
+      })
+    }
+
+    setupListener()
+
+    return () => {
+      if (unlisten) {
+        unlisten()
+      }
+    }
+  }, [setWriteProgress])
 
   const handleStartWrite = async () => {
     if (!selectedDisk || !imagePath) return
@@ -228,7 +249,7 @@ function WritePage() {
           onClick={() => setCurrentPage('configure')}
           disabled={isWriting}
         >
-          {t('configure.cancel')}
+          {isWriting ? t('configure.cancel') : t('write.back') || 'Back'}
         </button>
 
         {!isWriting && !isCompleted && (
@@ -243,7 +264,7 @@ function WritePage() {
 
         {isWriting && (
           <button className="btn-danger" onClick={handleCancel}>
-            {t('write.cancel')}
+            {t('write.stopWrite') || 'Stop Write'}
           </button>
         )}
 

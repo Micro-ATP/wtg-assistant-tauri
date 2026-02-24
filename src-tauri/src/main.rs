@@ -28,6 +28,8 @@ fn main() {
             commands::write::start_write,
             commands::write::cancel_write,
             commands::write::verify_system_files,
+            commands::benchmark::run_benchmark,
+            commands::partition::list_partitions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

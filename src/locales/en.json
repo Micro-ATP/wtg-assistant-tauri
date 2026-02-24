@@ -102,7 +102,14 @@
     "writeSpeed": "Write Speed",
     "random4K": "Random 4K",
     "sequential": "Sequential",
-    "results": "Benchmark Results"
+    "results": "Benchmark Results",
+    "duration": "Duration",
+    "threads": "4K scaling by threads",
+    "seqTrend": "Sequential speed over time",
+    "written": "Written data",
+    "quick": "Quick (short)",
+    "multithread": "Multi-thread (6 mins)",
+    "full": "Full endurance (15 mins)"
   },
   "errors": {
     "deviceNotFound": "Device not found",
@@ -122,4 +129,5 @@
     "diskWillBeFormatted": "The selected disk will be formatted. All data will be lost."
   }
 }
+
 

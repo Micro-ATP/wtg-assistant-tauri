@@ -5,6 +5,7 @@ import type {
   WtgConfig,
   WriteProgress,
   ImageInfo,
+  BenchmarkResult,
 } from '@/types'
 
 /**
@@ -121,6 +122,21 @@ export const writeApi = {
       return result
     } catch (error) {
       console.error('Failed to verify system files:', error)
+      throw error
+    }
+  },
+}
+
+/**
+ * Benchmark API
+ */
+export const benchmarkApi = {
+  run: async (targetPath: string, mode: 'quick' | 'multithread' | 'full' = 'quick'): Promise<BenchmarkResult> => {
+    try {
+      const result = await invoke<BenchmarkResult>('run_benchmark', { targetPath, mode })
+      return result
+    } catch (error) {
+      console.error('Failed to run benchmark:', error)
       throw error
     }
   },

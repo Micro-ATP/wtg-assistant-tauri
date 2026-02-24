@@ -59,13 +59,11 @@
     "disableUasp": "禁用 UASP",
     "compactOs": "CompactOS 压缩",
     "dotnet35": ".NET Framework 3.5",
-    "enableBitlocker": "启用 Bitlocker",
     "fixLetter": "修复驱动器号 (VHD)",
     "wimboot": "WIMBoot",
     "ntfsUefiSupport": "NTFS UEFI 支持",
     "noDefaultLetter": "不分配默认盘符",
     "doNotFormat": "不重新分区/格式化磁盘",
-    "repartition": "重新分区磁盘",
     "driverPath": "驱动程序文件夹（可选）",
     "selectEdition": "选择 Windows 版本",
     "loadingImageInfo": "正在读取映像信息，请稍候..."
@@ -108,7 +106,14 @@
     "writeSpeed": "写入速度",
     "random4K": "随机 4K",
     "sequential": "连续",
-    "results": "测试结果"
+    "results": "测试结果",
+    "duration": "耗时",
+    "threads": "4K 多线程扩展",
+    "seqTrend": "顺序写入随时间变化",
+    "written": "写入量",
+    "quick": "快速模式",
+    "multithread": "多线程模式（约6分钟）",
+    "full": "极限模式（约15分钟）"
   },
   "errors": {
     "deviceNotFound": "设备未找到",

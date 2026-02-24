@@ -125,6 +125,7 @@ function ConfigurePage() {
 
   const isVhdMode = applyMode === 'vhd' || applyMode === 'vhdx'
   const isUefiMode = bootMode === 'uefi_gpt' || bootMode === 'uefi_mbr'
+  const isLegacyMode = bootMode === 'non_uefi'
 
   // Check if image needs index selection but none selected
   const needsIndexSelection = imageInfoList.length > 1 && selectedWimIndex === '0'
@@ -142,8 +143,19 @@ function ConfigurePage() {
         next[conflict] = false
       })
     }
+    // force off when current boot mode disallows it
+    if (key === 'do_not_format' && !isLegacyMode) {
+      next.do_not_format = false
+    }
     setExtraFeatures(next)
   }
+
+  // When切换到UEFI模式，禁用“不重新分区/格式化”
+  useEffect(() => {
+    if (!isLegacyMode && extraFeatures.do_not_format) {
+      setExtraFeatures({ ...extraFeatures, do_not_format: false })
+    }
+  }, [isLegacyMode, extraFeatures, setExtraFeatures])
 
   const handleBrowseDriverPath = async () => {
     try {
@@ -407,20 +419,24 @@ function ConfigurePage() {
             { key: 'disable_uasp', label: t('configure.disableUasp') || 'Disable UASP' },
             { key: 'compact_os', label: t('configure.compactOs') || 'CompactOS' },
             { key: 'install_dotnet35', label: t('configure.dotnet35') || '.NET Framework 3.5' },
-            { key: 'enable_bitlocker', label: t('configure.enableBitlocker') || 'Enable Bitlocker' },
             { key: 'fix_letter', label: t('configure.fixLetter') || 'Fix Drive Letter (VHD)' },
             { key: 'wimboot', label: t('configure.wimboot') || 'WIMBoot' },
             { key: 'ntfs_uefi_support', label: t('configure.ntfsUefiSupport') || 'NTFS UEFI Support' },
             { key: 'no_default_drive_letter', label: t('configure.noDefaultLetter') || 'No Default Drive Letter' },
-            { key: 'do_not_format', label: t('configure.doNotFormat') || 'Do NOT re-partition/format disk' },
+            {
+              key: 'do_not_format',
+              label: t('configure.doNotFormat') || 'Do NOT re-partition/format disk',
+              disabled: !isLegacyMode,
+            },
           ].map((item) => (
             <label className="checkbox-option" key={item.key}>
               <input
                 type="checkbox"
                 checked={(extraFeatures as any)[item.key]}
+                disabled={(item as any).disabled}
                 onChange={() => handleToggleFeature(item.key as keyof typeof extraFeatures)}
               />
-              <span>{item.label}</span>
+              <span className={(item as any).disabled ? 'option-disabled' : ''}>{item.label}</span>
             </label>
           ))}
         </div>

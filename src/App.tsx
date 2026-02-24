@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar'
 import HomePage from './pages/Home'
 import ConfigurePage from './pages/Configure'
 import WritePage from './pages/Write'
+import BenchmarkPage from './pages/Benchmark'
 import { useAppStore } from './services/store'
 import type { SystemInfo } from './types'
 import './App.css'
@@ -33,6 +34,8 @@ function App() {
         return <ConfigurePage />
       case 'write':
         return <WritePage />
+      case 'benchmark':
+        return <BenchmarkPage />
       default:
         return <HomePage />
     }

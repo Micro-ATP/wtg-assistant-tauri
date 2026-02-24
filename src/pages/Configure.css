@@ -424,6 +424,15 @@ input:checked + .slider:before {
   z-index: 1;
 }
 
+.checkbox-option input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.option-disabled {
+  color: var(--color-text-tertiary);
+}
+
 .driver-path {
   margin-top: var(--spacing-lg);
   display: flex;

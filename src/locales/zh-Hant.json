@@ -59,13 +59,11 @@
     "disableUasp": "停用 UASP",
     "compactOs": "CompactOS 壓縮",
     "dotnet35": ".NET Framework 3.5",
-    "enableBitlocker": "啟用 Bitlocker",
     "fixLetter": "修復磁碟機代號 (VHD)",
     "wimboot": "WIMBoot",
     "ntfsUefiSupport": "NTFS UEFI 支援",
     "noDefaultLetter": "不指派預設磁碟機代號",
     "doNotFormat": "不重新分區/格式化磁碟",
-    "repartition": "重新分區磁碟",
     "driverPath": "驅動程式資料夾（可選）",
     "selectEdition": "選擇 Windows 版本",
     "loadingImageInfo": "正在讀取映像資訊，請稍候..."
@@ -108,7 +106,14 @@
     "writeSpeed": "寫入速度",
     "random4K": "隨機 4K",
     "sequential": "連續",
-    "results": "測試結果"
+    "results": "測試結果",
+    "duration": "耗時",
+    "threads": "4K 多執行緒擴展",
+    "seqTrend": "順序寫入隨時間變化",
+    "written": "寫入量",
+    "quick": "快速模式",
+    "multithread": "多執行緒模式（約6分鐘）",
+    "full": "極限模式（約15分鐘）"
   },
   "errors": {
     "deviceNotFound": "找不到裝置",
@@ -125,6 +130,6 @@
     "warning": "警告",
     "info": "資訊",
     "confirmOperation": "您確定要繼續嗎？",
-    "diskWillBeFormatted": "所選磁碟將被格式化，所有資料將遺失。"
+    "diskWillBeFormatted": "所選磁碟將被格式化。所有資料將遺失。"
   }
 }

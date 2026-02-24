@@ -27,5 +27,20 @@ export function useDiskList() {
     return () => clearInterval(interval)
   }, [])
 
-  return { disks, loading, error, refetch: () => diskApi.listDisks() }
+  const refetch = async () => {
+    try {
+      setLoading(true)
+      const result = await diskApi.listDisks()
+      setDisks(result)
+      setError(null)
+      return result
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load disks')
+      throw err
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return { disks, loading, error, refetch }
 }

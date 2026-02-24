@@ -19,6 +19,7 @@ export interface DiskInfo {
    media_type?: string
   index?: string
   volume?: string
+  free?: number
   is_system?: boolean
 }
 
@@ -121,6 +122,16 @@ export interface SystemInfo {
   cpu_count: number
 }
 
+export interface BenchmarkResult {
+  write_seq: number
+  write_4k: number
+  duration_ms: number
+  mode: string
+  thread_results: { threads: number; mb_s: number }[]
+  full_seq_samples: { t_ms: number; value: number; x_gb: number }[]
+  full_written_gb: number
+}
+
 export interface UsbDevice {
   id: string
   name: string
@@ -139,12 +150,12 @@ export interface UsbEvent {
 export function defaultExtraFeatures(): ExtraFeatures {
   return {
     install_dotnet35: false,
-    block_local_disk: false,
-    disable_winre: false,
+    block_local_disk: true,
+    disable_winre: true,
     skip_oobe: false,
     disable_uasp: false,
     enable_bitlocker: false,
-    fix_letter: true,
+    fix_letter: false,
     no_default_drive_letter: false,
     compact_os: false,
     wimboot: false,

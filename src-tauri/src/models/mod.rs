@@ -237,3 +237,11 @@ pub struct WriteConfig {
     pub partition_config: PartitionConfig,
     pub fast_write: bool,
 }
+
+/// Benchmark result model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkResult {
+    pub write_seq: f64,
+    pub write_4k: f64,
+    pub duration_ms: u64,
+}

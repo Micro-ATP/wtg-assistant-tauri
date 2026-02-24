@@ -26,6 +26,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 num_cpus = "1.16"
 sysinfo = "0.30"
 lazy_static = "1.4"
+rand = "0.8"
 
 # Platform-specific dependencies
 [target.'cfg(windows)'.dependencies]

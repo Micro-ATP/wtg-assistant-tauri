@@ -123,7 +123,7 @@ fn get_image_info_from_iso(_iso_path: &str) -> Result<Vec<ImageInfo>> {
 
 /// Dismount an ISO image
 #[cfg(target_os = "windows")]
-fn dismount_iso(iso_path: &str) {
+pub fn dismount_iso(iso_path: &str) {
     info!("Dismounting ISO: {}", iso_path);
     let _ = CommandExecutor::execute_allow_fail(
         "powershell.exe",
@@ -131,6 +131,64 @@ fn dismount_iso(iso_path: &str) {
           &format!("Dismount-DiskImage -ImagePath '{}'", iso_path)],
     );
 }
+
+/// Mount an ISO and return the path to install.wim or install.esd inside it.
+/// The caller is responsible for calling dismount_iso() when done.
+#[cfg(target_os = "windows")]
+pub fn mount_iso_and_find_wim(iso_path: &str) -> Result<String> {
+    info!("Mounting ISO for write: {}", iso_path);
+
+    let _ = CommandExecutor::execute_allow_fail(
+        "powershell.exe",
+        &["-NoProfile", "-Command",
+          &format!("Mount-DiskImage -ImagePath '{}'", iso_path)],
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    let ps_script = format!(
+        "$img = Get-DiskImage -ImagePath '{}'; \
+         if ($img.Attached) {{ \
+           $vol = $img | Get-Volume; \
+           $vol.DriveLetter \
+         }}",
+        iso_path
+    );
+    let drive_output = CommandExecutor::execute_allow_fail(
+        "powershell.exe",
+        &["-NoProfile", "-Command", &ps_script],
+    )?;
+
+    let drive_letter = drive_output.trim().to_string();
+    if drive_letter.is_empty() {
+        dismount_iso(iso_path);
+        return Err(AppError::ImageError("Failed to get ISO drive letter after mount".to_string()));
+    }
+
+    info!("ISO mounted at drive: {}:", drive_letter);
+
+    let wim_path = format!("{}:\\sources\\install.wim", drive_letter);
+    let esd_path = format!("{}:\\sources\\install.esd", drive_letter);
+
+    if std::path::Path::new(&wim_path).exists() {
+        Ok(wim_path)
+    } else if std::path::Path::new(&esd_path).exists() {
+        Ok(esd_path)
+    } else {
+        dismount_iso(iso_path);
+        Err(AppError::ImageError(
+            "Cannot find install.wim or install.esd in mounted ISO".to_string(),
+        ))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn mount_iso_and_find_wim(_iso_path: &str) -> Result<String> {
+    Err(AppError::ImageError("ISO mounting is only supported on Windows".to_string()))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn dismount_iso(_iso_path: &str) {}
 
 /// Parse DISM /Get-WimInfo output into ImageInfo list
 fn parse_dism_output(output: &str) -> Result<Vec<ImageInfo>> {

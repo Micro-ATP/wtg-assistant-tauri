@@ -179,8 +179,15 @@ pub fn run_diskpart_script(script: &str) -> crate::Result<String> {
     let _ = std::fs::remove_file(&script_path);
 
     if !output.status.success() {
-        error!("Diskpart failed: {}", stderr);
-        return Err(AppError::DiskError(format!("Diskpart failed: {}", stderr)));
+        let detail = if stderr.trim().is_empty() { &stdout } else { &stderr };
+        error!("Diskpart failed: {}", detail);
+        return Err(AppError::DiskError(format!("Diskpart failed: {}", detail.trim())));
+    }
+
+    // Also check stdout for common diskpart error patterns
+    let stdout_lower = stdout.to_lowercase();
+    if stdout_lower.contains("error") || stdout_lower.contains("is not valid") || stdout_lower.contains("cannot be") {
+        warn!("Diskpart reported error in output: {}", stdout);
     }
 
     Ok(stdout)

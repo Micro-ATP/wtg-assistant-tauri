@@ -6,6 +6,46 @@
 use crate::utils::command::{run_diskpart_script, wait_for_path, CommandExecutor};
 use crate::utils::first_char;
 use crate::Result;
+use tracing::info;
+
+/// Generate assign command - if letter is available use it, otherwise auto-assign
+fn assign_letter_cmd(volume_letter: &str) -> String {
+    let letter = first_char(volume_letter);
+    if letter.is_empty() {
+        "assign\n".to_string()
+    } else {
+        format!("assign letter={}\n", letter)
+    }
+}
+
+/// After partitioning, find the actual drive letter that was assigned.
+/// If we know the letter, return it. If empty (was auto-assigned), query diskpart.
+fn resolve_volume_path(volume_letter: &str, disk_index: &str) -> String {
+    let letter = first_char(volume_letter);
+    if !letter.is_empty() {
+        return format!("{}:\\", letter);
+    }
+    // If volume letter was auto-assigned, try to find it via PowerShell
+    if let Ok(output) = CommandExecutor::execute_allow_fail(
+        "powershell.exe",
+        &["-NoProfile", "-Command",
+          &format!(
+              "Get-Partition -DiskNumber {} -ErrorAction SilentlyContinue | \
+               Get-Volume -ErrorAction SilentlyContinue | \
+               Where-Object {{ $_.DriveLetter }} | \
+               Select-Object -First 1 -ExpandProperty DriveLetter",
+              disk_index
+          )],
+    ) {
+        let found = output.trim().to_string();
+        if !found.is_empty() && found.len() == 1 {
+            info!("Auto-detected volume letter: {}", found);
+            return format!("{}:\\", found);
+        }
+    }
+    // Fallback
+    String::new()
+}
 
 /// Generate and execute GPT + UEFI partition script
 /// Equivalent to DiskOperation.DiskPartGPTAndUEFI()
@@ -15,7 +55,7 @@ pub fn diskpart_gpt_uefi(
     volume_letter: &str,
     drive_type: &str,
     partition_sizes: &[u32],
-) -> Result<()> {
+) -> Result<String> {
     let mut script = String::new();
     let is_removable = drive_type.contains("Removable");
 
@@ -48,7 +88,7 @@ pub fn diskpart_gpt_uefi(
         script.push_str("select partition 3\n");
     }
     script.push_str("format fs=ntfs quick\n");
-    script.push_str(&format!("assign letter={}\n", first_char(volume_letter)));
+    script.push_str(&assign_letter_cmd(volume_letter));
 
     // Format additional partitions
     let start_partition = if is_removable { 3 } else { 4 };
@@ -71,11 +111,13 @@ pub fn diskpart_gpt_uefi(
 
     run_diskpart_script(&script)?;
 
-    // Wait for the disk to become available
-    let disk_path = format!("{}:\\", first_char(volume_letter));
-    wait_for_path(&disk_path, 100, 100);
+    // Resolve the actual volume path
+    let disk_path = resolve_volume_path(volume_letter, disk_index);
+    if !disk_path.is_empty() {
+        wait_for_path(&disk_path, 100, 100);
+    }
 
-    Ok(())
+    Ok(disk_path)
 }
 
 /// Generate and execute MBR + UEFI partition script
@@ -106,7 +148,7 @@ pub fn diskpart_mbr_uefi(
     script.push_str("format fs=ntfs quick\n");
 
     if keep_drive_letter {
-        script.push_str(&format!("assign letter={}\n", first_char(volume_letter)));
+        script.push_str(&assign_letter_cmd(volume_letter));
     } else {
         script.push_str("assign\n");
     }
@@ -152,7 +194,7 @@ pub fn diskpart_repartition(
     script.push_str("select partition 1\n");
     script.push_str("format fs=ntfs quick\n");
     script.push_str("active\n");
-    script.push_str(&format!("assign letter={}\n", first_char(volume_letter)));
+    script.push_str(&assign_letter_cmd(volume_letter));
 
     for i in 0..valid_sizes.len().saturating_sub(1) {
         script.push_str(&format!("select partition {}\n", i + 2));
@@ -209,6 +251,11 @@ pub fn remove_drive_letter(volume_letter: &str) -> Result<()> {
     );
     run_diskpart_script(&script)?;
     Ok(())
+}
+
+/// Resolve the volume path after partitioning a disk (public wrapper)
+pub fn resolve_volume_after_partition(disk_index: &str) -> String {
+    resolve_volume_path("", disk_index)
 }
 
 /// Quick format a drive as NTFS

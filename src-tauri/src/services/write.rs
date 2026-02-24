@@ -77,17 +77,74 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
 
 /// Inner write logic (separates error handling from cleanup)
 fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str) -> Result<()> {
-    let ud = format!("{}:\\", first_char(&config.target_disk.volume));
+    // Validate critical fields
     let disk_index = &config.target_disk.index;
     let volume_letter = &config.target_disk.volume;
     let drive_type = &config.target_disk.drive_type;
+
+    if disk_index.is_empty() {
+        return Err(AppError::InvalidParameter(
+            "Disk index is empty. The selected disk has no valid disk number.".to_string()
+        ));
+    }
+
+    info!(
+        "Write target: disk_index={}, volume={}, drive_type={}, device={}",
+        disk_index, volume_letter, drive_type, config.target_disk.device
+    );
+
+    // For modes that need volume letter (Non-UEFI format/repartition), validate it
+    let needs_volume = matches!(config.boot_mode, BootMode::NonUefi)
+        && (config.extra_features.repartition || !config.extra_features.do_not_format);
+
+    if needs_volume && volume_letter.is_empty() {
+        return Err(AppError::InvalidParameter(
+            "Volume letter is empty. The selected disk has no assigned drive letter. \
+             Please assign a drive letter in Disk Management first.".to_string()
+        ));
+    }
+
+    // Resolve actual image path — for ISO, mount and use the WIM/ESD inside
+    let is_iso = config.image_path.to_lowercase().ends_with(".iso");
+    let actual_image_path = if is_iso {
+        info!("Image is ISO, mounting to extract WIM/ESD path...");
+        image::mount_iso_and_find_wim(&config.image_path)?
+    } else {
+        config.image_path.clone()
+    };
+    info!("Actual image path for DISM: {}", actual_image_path);
+
+    // Wrap the actual write in a closure so we can always dismount ISO on exit
+    let result = execute_write_with_image(config, &actual_image_path, app_files_path);
+
+    // Always dismount ISO if we mounted one
+    if is_iso {
+        image::dismount_iso(&config.image_path);
+    }
+
+    result
+}
+
+/// The actual write logic, using the resolved image path (WIM/ESD, not ISO)
+fn execute_write_with_image(config: &WtgConfig, image_path: &str, app_files_path: &str) -> Result<()> {
+    let disk_index = &config.target_disk.index;
+    let volume_letter = &config.target_disk.volume;
+    let drive_type = &config.target_disk.drive_type;
+
+    // Build UD path
+    let ud = if !volume_letter.is_empty() {
+        format!("{}:\\", first_char(volume_letter))
+    } else {
+        String::new()
+    };
+
     let partition_sizes: Vec<u32> = config.partition_config.extra_partition_sizes.clone();
 
     match config.boot_mode {
         BootMode::UefiGpt => {
             // UEFI + GPT mode
             info!("Starting UEFI+GPT partition");
-            diskpart::diskpart_gpt_uefi(
+            let resolved_ud = diskpart::diskpart_gpt_uefi(
                 &config.efi_partition_size,
                 disk_index,
                 volume_letter,
@@ -95,20 +152,22 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
                 &partition_sizes,
             )?;
 
-            wait_for_path(&ud, 100, 100);
+            // Use the resolved volume path (diskpart may have auto-assigned a letter)
+            let ud = if !resolved_ud.is_empty() { resolved_ud } else { ud };
 
-            // Get ESP letter (first volume after partitioning)
-            // In the actual implementation, we'd query volumes from the disk
-            // For now, we use the EFI partition path if set
-            let esp_letter = config.efi_partition_path.clone()
-                .unwrap_or_else(|| "X:".to_string());
+            if !ud.is_empty() {
+                wait_for_path(&ud, 100, 100);
+            }
+
+            // Get ESP letter — after partitioning, query for the FAT32 partition
+            let esp_letter = resolve_esp_letter(disk_index, &config.efi_partition_path);
 
             match config.apply_mode {
                 ApplyMode::Legacy => {
-                    uefi_gpt_typical(config, &ud, &esp_letter, app_files_path)?;
+                    uefi_gpt_typical(config, image_path, &ud, &esp_letter, app_files_path)?;
                 }
                 ApplyMode::VHD | ApplyMode::VHDX => {
-                    uefi_gpt_vhd_vhdx(config, &ud, &esp_letter, app_files_path)?;
+                    uefi_gpt_vhd_vhdx(config, image_path, &ud, &esp_letter, app_files_path)?;
                 }
             }
         }
@@ -123,17 +182,22 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
                 false,
             )?;
 
-            wait_for_path(&ud, 100, 100);
+            // Resolve UD path after partitioning
+            let ud = if ud.is_empty() {
+                diskpart::resolve_volume_after_partition(disk_index)
+            } else {
+                wait_for_path(&ud, 100, 100);
+                ud
+            };
 
-            let esp_letter = config.efi_partition_path.clone()
-                .unwrap_or_else(|| "X:".to_string());
+            let esp_letter = resolve_esp_letter(disk_index, &config.efi_partition_path);
 
             match config.apply_mode {
                 ApplyMode::Legacy => {
-                    uefi_mbr_typical(config, &ud, &esp_letter, app_files_path)?;
+                    uefi_mbr_typical(config, image_path, &ud, &esp_letter, app_files_path)?;
                 }
                 ApplyMode::VHD | ApplyMode::VHDX => {
-                    uefi_mbr_vhd_vhdx(config, &ud, &esp_letter, app_files_path)?;
+                    uefi_mbr_vhd_vhdx(config, image_path, &ud, &esp_letter, app_files_path)?;
                 }
             }
         }
@@ -149,10 +213,10 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
 
             match config.apply_mode {
                 ApplyMode::Legacy => {
-                    non_uefi_typical(config, &ud, app_files_path)?;
+                    non_uefi_typical(config, image_path, &ud, app_files_path)?;
                 }
                 ApplyMode::VHD | ApplyMode::VHDX => {
-                    non_uefi_vhd_vhdx(config, &ud, app_files_path)?;
+                    non_uefi_vhd_vhdx(config, image_path, &ud, app_files_path)?;
                 }
             }
         }
@@ -166,6 +230,7 @@ fn execute_write_inner(config: &WtgConfig, app_files_path: &str, _task_id: &str)
 // ============================================================
 fn uefi_gpt_typical(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
@@ -178,8 +243,8 @@ fn uefi_gpt_typical(
     }
 
     // Auto-choose WIM index and apply image
-    let wim_index = image::auto_choose_wim_index(&config.image_path, &config.wim_index)?;
-    image::dism_apply_image(&config.image_path, ud, &wim_index, config.extra_features.compact_os)?;
+    let wim_index = image::auto_choose_wim_index(image_path, &config.wim_index)?;
+    image::dism_apply_image(image_path, ud, &wim_index, config.extra_features.compact_os)?;
 
     // Verify system files
     if !image::verify_system_files(ud) {
@@ -194,7 +259,7 @@ fn uefi_gpt_typical(
         config.extra_features.skip_oobe,
         config.extra_features.disable_uasp,
         ud,
-        &config.image_path,
+        image_path,
         app_files_path,
         config.extra_features.driver_path.as_deref(),
     )?;
@@ -215,6 +280,7 @@ fn uefi_gpt_typical(
 // ============================================================
 fn uefi_gpt_vhd_vhdx(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
@@ -224,7 +290,7 @@ fn uefi_gpt_vhd_vhdx(
     let vhd_config = config.vhd_config.as_ref()
         .ok_or_else(|| AppError::InvalidParameter("VHD config required for VHD mode".to_string()))?;
 
-    execute_vhd_workflow(config, ud, Some(esp_letter), app_files_path, vhd_config)?;
+    execute_vhd_workflow(config, image_path, ud, Some(esp_letter), app_files_path, vhd_config)?;
 
     // Remove ESP letter
     let _ = diskpart::remove_drive_letter(esp_letter);
@@ -244,6 +310,7 @@ fn uefi_gpt_vhd_vhdx(
 // ============================================================
 fn non_uefi_typical(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     app_files_path: &str,
 ) -> Result<()> {
@@ -253,14 +320,14 @@ fn non_uefi_typical(
         enable_bitlocker(ud, app_files_path)?;
     }
 
-    let wim_index = image::auto_choose_wim_index(&config.image_path, &config.wim_index)?;
+    let wim_index = image::auto_choose_wim_index(image_path, &config.wim_index)?;
 
     image::image_apply(
         config.extra_features.wimboot,
         config.image_type == ImageType::Esd,
         true, // allow_esd
         "imagex_x86.exe",
-        &config.image_path,
+        image_path,
         &wim_index,
         ud,
         ud,
@@ -275,7 +342,7 @@ fn non_uefi_typical(
         config.extra_features.skip_oobe,
         config.extra_features.disable_uasp,
         ud,
-        &config.image_path,
+        image_path,
         app_files_path,
         config.extra_features.driver_path.as_deref(),
     )?;
@@ -317,6 +384,7 @@ fn non_uefi_typical(
 // ============================================================
 fn non_uefi_vhd_vhdx(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     app_files_path: &str,
 ) -> Result<()> {
@@ -325,7 +393,7 @@ fn non_uefi_vhd_vhdx(
     let vhd_config = config.vhd_config.as_ref()
         .ok_or_else(|| AppError::InvalidParameter("VHD config required for VHD mode".to_string()))?;
 
-    execute_vhd_workflow(config, ud, None, app_files_path, vhd_config)?;
+    execute_vhd_workflow(config, image_path, ud, None, app_files_path, vhd_config)?;
 
     // Write MBR/PBR
     boot::bootice_write_mbr_pbr_and_act(ud, app_files_path)?;
@@ -345,13 +413,14 @@ fn non_uefi_vhd_vhdx(
 // ============================================================
 fn uefi_mbr_typical(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
 ) -> Result<()> {
     info!("Write mode: UEFI+MBR Typical");
 
-    let wim_index = image::auto_choose_wim_index(&config.image_path, &config.wim_index)?;
+    let wim_index = image::auto_choose_wim_index(image_path, &config.wim_index)?;
 
     if config.extra_features.enable_bitlocker {
         enable_bitlocker(ud, app_files_path)?;
@@ -363,7 +432,7 @@ fn uefi_mbr_typical(
         config.image_type == ImageType::Esd,
         true,
         "imagex_x86.exe",
-        &config.image_path,
+        image_path,
         &wim_index,
         ud,
         ud,
@@ -382,7 +451,7 @@ fn uefi_mbr_typical(
         config.extra_features.skip_oobe,
         config.extra_features.disable_uasp,
         ud,
-        &config.image_path,
+        image_path,
         app_files_path,
         config.extra_features.driver_path.as_deref(),
     )?;
@@ -403,6 +472,7 @@ fn uefi_mbr_typical(
 // ============================================================
 fn uefi_mbr_vhd_vhdx(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     esp_letter: &str,
     app_files_path: &str,
@@ -412,7 +482,7 @@ fn uefi_mbr_vhd_vhdx(
     let vhd_config = config.vhd_config.as_ref()
         .ok_or_else(|| AppError::InvalidParameter("VHD config required for VHD mode".to_string()))?;
 
-    execute_vhd_workflow(config, ud, Some(esp_letter), app_files_path, vhd_config)?;
+    execute_vhd_workflow(config, image_path, ud, Some(esp_letter), app_files_path, vhd_config)?;
 
     // Remove ESP letter
     let _ = diskpart::remove_drive_letter(esp_letter);
@@ -432,6 +502,7 @@ fn uefi_mbr_vhd_vhdx(
 // ============================================================
 fn execute_vhd_workflow(
     config: &WtgConfig,
+    image_path: &str,
     ud: &str,
     esp_letter: Option<&str>,
     app_files_path: &str,
@@ -447,7 +518,7 @@ fn execute_vhd_workflow(
     // Create VHD operation context
     let vhd_op = vhd::VhdOperation::new(
         image_type,
-        &config.image_path,
+        image_path,
         vhd_config.vhd_type == VhdType::Fixed,
         vhd_config.size_mb,
         ud,
@@ -465,7 +536,7 @@ fn execute_vhd_workflow(
 
     if image_type == "vhd" || image_type == "vhdx" {
         // Import existing VHD
-        vhd::copy_vhd(&config.image_path, ud, &vhd_config.extension)?;
+        vhd::copy_vhd(image_path, ud, &vhd_config.extension)?;
         vhd::twice_attach_and_write_boot(ud, &vhd_filename, config.extra_features.ntfs_uefi_support)?;
     } else {
         // Create new VHD
@@ -485,13 +556,13 @@ fn execute_vhd_workflow(
         }
 
         // Apply image to VHD
-        let wim_index = image::auto_choose_wim_index(&config.image_path, &config.wim_index)?;
+        let wim_index = image::auto_choose_wim_index(image_path, &config.wim_index)?;
         image::image_apply(
             config.extra_features.wimboot,
             config.image_type == ImageType::Esd,
             true,
             "imagex_x86.exe",
-            &config.image_path,
+            image_path,
             &wim_index,
             "V:\\",
             ud,
@@ -506,7 +577,7 @@ fn execute_vhd_workflow(
             config.extra_features.skip_oobe,
             config.extra_features.disable_uasp,
             "V:\\",
-            &config.image_path,
+            image_path,
             app_files_path,
             config.extra_features.driver_path.as_deref(),
         )?;
@@ -619,6 +690,42 @@ fn fix_vhd_bcd(
         }
     }
     Ok(())
+}
+
+/// Resolve ESP (EFI System Partition) letter after disk partitioning.
+/// If user specified one, use it. Otherwise, query via PowerShell.
+fn resolve_esp_letter(disk_index: &str, user_efi_path: &Option<String>) -> String {
+    if let Some(ref path) = user_efi_path {
+        if !path.is_empty() {
+            return path.clone();
+        }
+    }
+
+    // Query for FAT32 volumes on this disk (the ESP)
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = CommandExecutor::execute_allow_fail(
+            "powershell.exe",
+            &["-NoProfile", "-Command",
+              &format!(
+                  "Get-Partition -DiskNumber {} -ErrorAction SilentlyContinue | \
+                   Get-Volume -ErrorAction SilentlyContinue | \
+                   Where-Object {{ $_.FileSystemType -eq 'FAT32' -and $_.DriveLetter }} | \
+                   Select-Object -First 1 -ExpandProperty DriveLetter",
+                  disk_index
+              )],
+        ) {
+            let letter = output.trim().to_string();
+            if !letter.is_empty() && letter.len() == 1 {
+                info!("Found ESP letter: {}", letter);
+                return format!("{}:", letter);
+            }
+        }
+    }
+
+    // Fallback
+    info!("Could not detect ESP letter, using X:");
+    "X:".to_string()
 }
 
 /// Enable Bitlocker on a target drive

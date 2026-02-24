@@ -16,31 +16,83 @@ pub fn bcdboot_write_boot_file(
 ) -> Result<()> {
     let target = first_two_chars(target_disk); // e.g., "E:"
 
-    let fw_flag = match fw_type {
-        FirmwareType::ALL => "/f all",
-        FirmwareType::BIOS => "/f bios",
-        FirmwareType::UEFI => "/f uefi",
+    // Ensure source_disk has proper path format (should be like "D:\")
+    let source_windows = if source_disk.ends_with('\\') {
+        format!("{}windows", source_disk)
+    } else {
+        format!("{}\\windows", source_disk)
     };
 
-    let args = format!(
-        "{}windows /s {} {} /l zh-CN /v",
-        source_disk, target, fw_flag
-    );
+    let fw_flag = match fw_type {
+        FirmwareType::ALL => "all",
+        FirmwareType::BIOS => "bios",
+        FirmwareType::UEFI => "uefi",
+    };
 
-    info!("Running bcdboot: {}", args);
+    // Build arguments as a proper vector instead of splitting a string
+    let args = vec![
+        source_windows.as_str(),
+        "/s",
+        target,
+        "/f",
+        fw_flag,
+        "/l",
+        "zh-CN",
+        "/v",
+    ];
 
-    // Try system bcdboot first
-    let result = CommandExecutor::execute_allow_fail("bcdboot.exe", &args.split_whitespace().collect::<Vec<_>>());
+    info!("Running bcdboot with args: {:?}", args);
+
+    // Execute bcdboot
+    let result = CommandExecutor::execute_allow_fail("bcdboot.exe", &args);
 
     match result {
         Ok(output) => {
             info!("bcdboot output: {}", output);
+
+            // Validate that boot files were actually created
+            validate_boot_files_created(target, fw_type)?;
+
             Ok(())
         }
         Err(e) => {
-            warn!("bcdboot failed: {}", e);
+            warn!("bcdboot execution failed: {}", e);
             Err(AppError::CommandFailed(format!("bcdboot failed: {}", e)))
         }
+    }
+}
+
+/// Validate that boot files were actually created by bcdboot
+fn validate_boot_files_created(target_disk: &str, fw_type: &FirmwareType) -> Result<()> {
+    use std::path::Path;
+
+    // Check for BCD file at the expected location
+    let bcd_path = match fw_type {
+        FirmwareType::UEFI => {
+            // UEFI boot files go to EFI partition
+            format!("{}\\EFI\\Microsoft\\Boot\\BCD", target_disk)
+        }
+        _ => {
+            // BIOS boot files go to boot partition
+            format!("{}\\Boot\\BCD", target_disk)
+        }
+    };
+
+    // Also check for bootmgr (BIOS only) or bootmgr.efi (UEFI)
+    let bootmgr_path = match fw_type {
+        FirmwareType::UEFI => format!("{}\\EFI\\Microsoft\\Boot\\bootmgfw.efi", target_disk),
+        _ => format!("{}\\bootmgr", target_disk),
+    };
+
+    if Path::new(&bcd_path).exists() {
+        info!("Boot files validation SUCCESS: BCD found at {}", bcd_path);
+        Ok(())
+    } else {
+        warn!("Boot files validation FAILED: BCD not found at {}", bcd_path);
+        warn!("Expected bootmgr at: {}", bootmgr_path);
+        Err(AppError::CommandFailed(
+            format!("bcdboot completed but boot files not found at {}. Check if target partition is accessible.", bcd_path)
+        ))
     }
 }
 

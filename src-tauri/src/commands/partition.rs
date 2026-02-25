@@ -36,19 +36,22 @@ fn normalize_drive_letter(value: &serde_json::Value) -> String {
 fn normalize_media_type(value: &serde_json::Value) -> String {
     if let Some(raw) = value.as_str() {
         let up = raw.trim().to_uppercase();
-        if up.contains("SSD") || up == "4" {
+        if up.contains("SSD") || up.contains("NVME") || up == "4" {
             return "SSD".to_string();
         }
         if up.contains("HDD") || up.contains("ROTATIONAL") || up == "3" {
             return "HDD".to_string();
         }
-        return "HDD".to_string();
+        if up.contains("UNKNOWN") || up.contains("UNSPECIFIED") || up.is_empty() {
+            return "Unknown".to_string();
+        }
+        return raw.trim().to_string();
     }
 
     match value.as_u64().unwrap_or(0) {
         4 => "SSD".to_string(),
         3 => "HDD".to_string(),
-        _ => "HDD".to_string(),
+        _ => "Unknown".to_string(),
     }
 }
 

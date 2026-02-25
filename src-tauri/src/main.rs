@@ -21,6 +21,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::disk::list_disks,
             commands::disk::get_disk_info,
+            commands::disk::list_disk_diagnostics,
             commands::usb::start_usb_monitoring,
             commands::usb::stop_usb_monitoring,
             commands::system::get_system_info,

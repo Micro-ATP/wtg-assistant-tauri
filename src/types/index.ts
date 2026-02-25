@@ -132,6 +132,50 @@ export interface BenchmarkResult {
   full_written_gb: number
 }
 
+export interface SmartAttribute {
+  id: number
+  name: string
+  current?: number
+  worst?: number
+  threshold?: number
+  raw?: number
+  raw_hex: string
+}
+
+export interface DiskDiagnostics {
+  id: string
+  disk_number: number
+  model: string
+  friendly_name: string
+  serial_number: string
+  firmware_version: string
+  interface_type: string
+  transport_type: string
+  is_usb: boolean
+  bus_type: string
+  unique_id: string
+  media_type: string
+  size_bytes: number
+  is_system: boolean
+  health_status: string
+  smart_supported: boolean
+  smart_enabled: boolean
+  smart_data_source: string
+  ata_smart_available: boolean
+  reliability_available: boolean
+  temperature_c?: number
+  power_on_hours?: number
+  power_cycle_count?: number
+  percentage_used?: number
+  read_errors_total?: number
+  write_errors_total?: number
+  host_reads_total?: number
+  host_writes_total?: number
+  smart_attributes: SmartAttribute[]
+  reliability: Record<string, unknown> | null
+  notes: string[]
+}
+
 export interface UsbDevice {
   id: string
   name: string

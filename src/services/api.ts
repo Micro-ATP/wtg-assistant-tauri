@@ -6,6 +6,7 @@ import type {
   WriteProgress,
   ImageInfo,
   BenchmarkResult,
+  DiskDiagnostics,
 } from '@/types'
 
 /**
@@ -28,6 +29,16 @@ export const diskApi = {
       return info
     } catch (error) {
       console.error('Failed to get disk info:', error)
+      throw error
+    }
+  },
+
+  listDiskDiagnostics: async (): Promise<DiskDiagnostics[]> => {
+    try {
+      const diagnostics = await invoke<DiskDiagnostics[]>('list_disk_diagnostics')
+      return diagnostics
+    } catch (error) {
+      console.error('Failed to get disk diagnostics:', error)
       throw error
     }
   },

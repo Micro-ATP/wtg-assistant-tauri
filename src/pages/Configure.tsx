@@ -72,9 +72,12 @@ function ConfigurePage() {
 
   const getMediaLabel = (disk: DiskInfo) => {
     const media = (disk.media_type || '').toUpperCase()
+    const driveType = (disk.drive_type || '').toUpperCase()
     if (media.includes('SSD')) return 'SSD'
     if (media.includes('HDD')) return 'HDD'
-    return disk.removable ? 'USB' : 'HDD'
+    if (media.includes('USB') || driveType.includes('USB')) return 'USB'
+    if (media.includes('NVME') || driveType.includes('NVME')) return 'SSD'
+    return disk.removable ? 'USB' : 'Unknown'
   }
 
   const handleSelectImage = async () => {

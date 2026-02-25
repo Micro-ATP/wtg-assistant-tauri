@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
-import { SettingsIcon, BenchmarkIcon } from '../components/Icons'
+import { SettingsIcon, BenchmarkIcon, ToolsIcon } from '../components/Icons'
 import './Home.css'
 
-type HomeTargetPage = 'configure' | 'benchmark'
+type HomeTargetPage = 'configure' | 'benchmark' | 'tools'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -37,6 +37,13 @@ function HomePage() {
       title: t('home.benchmark'),
       description: t('home.benchmarkDesc'),
       icon: BenchmarkIcon,
+    },
+    {
+      id: 'tools',
+      page: 'tools',
+      title: t('home.tools') || t('common.tools'),
+      description: t('home.toolsDesc') || t('tools.subtitle'),
+      icon: ToolsIcon,
     },
   ]
 

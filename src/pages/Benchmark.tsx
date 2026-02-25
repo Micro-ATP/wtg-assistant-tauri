@@ -35,9 +35,10 @@ function BenchmarkPage() {
 
   const getMediaLabel = (media: string) => {
     const up = (media || '').toUpperCase()
-    if (up.includes('SSD') || up === '4') return 'SSD'
+    if (up.includes('SSD') || up.includes('NVME') || up === '4') return 'SSD'
     if (up.includes('HDD') || up.includes('ROTATIONAL') || up === '3') return 'HDD'
-    return 'HDD'
+    if (up.includes('USB')) return 'USB'
+    return 'Unknown'
   }
 
   const runModesSequential = async (targetPath: string) => {

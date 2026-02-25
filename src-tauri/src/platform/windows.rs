@@ -15,6 +15,20 @@ use tracing::{info, warn};
 const PS_LIST_DISKS: &str = r#"
 $physical = Get-PhysicalDisk | Select-Object FriendlyName, MediaType, SpindleSpeed
 $disks = Get-Disk | Select-Object Number, FriendlyName, Size, BusType, MediaType, IsBoot, IsSystem
+$systemDiskNumber = $null
+try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    $systemDrive = if ($os) { [string]$os.SystemDrive } else { '' }
+    if ($systemDrive) {
+        $driveLetter = $systemDrive.Trim().TrimEnd('\').TrimEnd(':')
+        if ($driveLetter) {
+            $sysPart = Get-Partition -DriveLetter $driveLetter -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($sysPart -and $null -ne $sysPart.DiskNumber) {
+                $systemDiskNumber = [int]$sysPart.DiskNumber
+            }
+        }
+    }
+} catch {}
 $result = @()
 foreach ($d in $disks) {
     # Try to resolve media type (SSD/HDD)
@@ -43,6 +57,7 @@ foreach ($d in $disks) {
         Where-Object { $_.DriveLetter -ne $null -and $_.DriveLetter -ne '' } |
         Select-Object -ExpandProperty DriveLetter
     $vol = if ($volumes -is [array]) { $volumes[0] } else { $volumes }
+    $derivedSystem = if ($null -ne $systemDiskNumber) { [int]$d.Number -eq $systemDiskNumber } else { [bool]($d.IsBoot -or $d.IsSystem) }
     $busName = switch -Regex ($busRaw) {
         '^0$|^Unknown$' { "Unknown" }
         '^1$|^SCSI$' { "SCSI" }
@@ -70,7 +85,7 @@ foreach ($d in $disks) {
         BusType      = $d.BusType
         MediaType    = $media
         IsBoot       = $d.IsBoot
-        IsSystem     = $d.IsSystem
+        IsSystem     = [bool]$derivedSystem
         BusTypeName  = $busName
         VolumeLetter = if ($vol) { [string]$vol } else { "" }
     }
@@ -300,6 +315,24 @@ function Get-FirstSmartRaw([object[]]$attrs, [int[]]$ids) {
     return $null
 }
 
+function Get-EnduranceUsedEstimate([object[]]$attrs) {
+    # Prefer life-left normalized values (CDI-style core path): 231 / 233 / 202
+    $lifeLeft = Get-SmartCurrent $attrs 231
+    if ($null -eq $lifeLeft) { $lifeLeft = Get-SmartCurrent $attrs 233 }
+    if ($null -eq $lifeLeft) { $lifeLeft = Get-SmartCurrent $attrs 202 }
+    if ($null -ne $lifeLeft -and $lifeLeft -gt 0 -and $lifeLeft -lt 100) {
+        return [double]([Math]::Max([Math]::Min(100 - [double]$lifeLeft, 100), 0))
+    }
+
+    # Vendor-specific fallback: some SSDs expose "used %" in RAW 202.
+    $rawUsed = Get-SmartRaw $attrs 202
+    if ($null -ne $rawUsed -and $rawUsed -gt 0 -and $rawUsed -le 100) {
+        return [double]$rawUsed
+    }
+
+    return $null
+}
+
 function Get-TemperatureFromRaw([object]$raw) {
     if ($null -eq $raw) { return $null }
     try {
@@ -318,6 +351,20 @@ $physicalMedia = Get-CimInstance Win32_PhysicalMedia
 $fpStatusAll = Get-WmiObject -Namespace root\wmi -Class MSStorageDriver_FailurePredictStatus
 $fpDataAll = Get-WmiObject -Namespace root\wmi -Class MSStorageDriver_FailurePredictData
 $fpThresholdAll = Get-WmiObject -Namespace root\wmi -Class MSStorageDriver_FailurePredictThresholds
+$systemDiskNumber = $null
+try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    $systemDrive = if ($os) { [string]$os.SystemDrive } else { '' }
+    if ($systemDrive) {
+        $driveLetter = $systemDrive.Trim().TrimEnd('\').TrimEnd(':')
+        if ($driveLetter) {
+            $sysPart = Get-Partition -DriveLetter $driveLetter -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($sysPart -and $null -ne $sysPart.DiskNumber) {
+                $systemDiskNumber = [int]$sysPart.DiskNumber
+            }
+        }
+    }
+} catch {}
 $result = @()
 
 foreach ($d in $disks) {
@@ -417,13 +464,16 @@ foreach ($d in $disks) {
     $powerCycleCount = if ($reliability -and $null -ne $reliability.PowerCycleCount) { [uint64]$reliability.PowerCycleCount } else { Get-SmartRaw $attrs 12 }
 
     $wear = if ($reliability -and $null -ne $reliability.Wear) { [double]$reliability.Wear } else { $null }
-    if ($null -eq $wear) {
-        $lifeLeft = Get-SmartCurrent $attrs 231
-        if ($null -eq $lifeLeft) { $lifeLeft = Get-SmartCurrent $attrs 233 }
-        if ($null -eq $lifeLeft) { $lifeLeft = Get-SmartCurrent $attrs 202 }
-        if ($null -ne $lifeLeft) {
-            $wear = [double]([Math]::Max([Math]::Min(100 - [double]$lifeLeft, 100), 0))
-        }
+    $wearFromAttrs = Get-EnduranceUsedEstimate $attrs
+    if ($null -eq $wear -or ($wear -le 0 -and $null -ne $wearFromAttrs -and $wearFromAttrs -gt 0)) {
+        $wear = $wearFromAttrs
+    }
+    if ($null -ne $wear) {
+        $wear = [double]([Math]::Max([Math]::Min([double]$wear, 100), 0))
+    }
+    if ($transport -ne 'NVMe' -and $null -ne $wear -and $wear -le 0 -and $null -eq $wearFromAttrs) {
+        # Avoid showing misleading 100% health from placeholder Wear=0 on some SATA/USB paths.
+        $wear = $null
     }
 
     $readErrorsTotal = if ($reliability -and $null -ne $reliability.ReadErrorsTotal) { [uint64]$reliability.ReadErrorsTotal } else { Get-FirstSmartRaw $attrs @(1, 187, 201) }
@@ -468,6 +518,7 @@ foreach ($d in $disks) {
     if ($isUsb -and -not $ataSmartAvailable -and -not $reliabilityAvailable) {
         $notes += 'USB bridge may block pass-through SMART commands on this enclosure.'
     }
+    $isSystemDisk = if ($null -ne $systemDiskNumber) { [int]$d.Number -eq $systemDiskNumber } else { [bool]($d.IsBoot -or $d.IsSystem) }
 
     $result += [PSCustomObject]@{
         id = "disk$($d.Number)"
@@ -486,7 +537,7 @@ foreach ($d in $disks) {
         unique_id = $uniqueId
         media_type = $media
         size_bytes = [uint64]$d.Size
-        is_system = [bool]($d.IsBoot -or $d.IsSystem)
+        is_system = [bool]$isSystemDisk
         health_status = $health
         smart_supported = $smartSupported
         smart_enabled = $smartEnabled
@@ -588,6 +639,7 @@ pub async fn list_disk_diagnostics() -> Result<Vec<DiskDiagnostics>> {
 
     enrich_with_smartctl(&mut diagnostics);
     enrich_with_native_smart(&mut diagnostics);
+    normalize_endurance_percentage(&mut diagnostics);
     Ok(diagnostics)
 }
 
@@ -664,6 +716,13 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
                                 diag,
                                 "SMART threshold table was not returned by device/bridge; threshold values are unavailable.",
                             );
+                        }
+                    }
+                    if let Some(used) = derive_endurance_used_from_attrs(&diag.smart_attributes) {
+                        if diag.percentage_used.is_none()
+                            || diag.percentage_used.unwrap_or(0.0) <= 0.0
+                        {
+                            diag.percentage_used = Some(used);
                         }
                     }
                     ata_ok = true;
@@ -1551,12 +1610,8 @@ fn apply_smartctl_payload(diag: &mut DiskDiagnostics, payload: &Value) {
             diag.write_errors_total = smartctl_attr_raw_u64(&smartctl_attrs, 200)
                 .or_else(|| smartctl_attr_raw_u64(&smartctl_attrs, 181));
         }
-        if diag.percentage_used.is_none() {
-            if let Some(life_left) = smartctl_attr_current(&smartctl_attrs, 231)
-                .or_else(|| smartctl_attr_current(&smartctl_attrs, 233))
-                .or_else(|| smartctl_attr_current(&smartctl_attrs, 202))
-            {
-                let used = (100.0 - life_left as f64).clamp(0.0, 100.0);
+        if let Some(used) = derive_endurance_used_from_attrs(&smartctl_attrs) {
+            if diag.percentage_used.is_none() || diag.percentage_used.unwrap_or(0.0) <= 0.0 {
                 diag.percentage_used = Some(used);
             }
         }
@@ -1703,6 +1758,53 @@ fn smartctl_attr_raw_u64(attrs: &[SmartAttribute], id: u32) -> Option<u64> {
 
 fn smartctl_attr_current(attrs: &[SmartAttribute], id: u32) -> Option<u32> {
     attrs.iter().find(|a| a.id == id).and_then(|a| a.current)
+}
+
+fn derive_endurance_used_from_attrs(attrs: &[SmartAttribute]) -> Option<f64> {
+    // CDI-like priority:
+    // 1) Life-left normalized attributes (231/233/202): used = 100 - current
+    // 2) Vendor fallback: RAW 202 directly represents used% for some SSD families.
+    let life_left = smartctl_attr_current(attrs, 231)
+        .or_else(|| smartctl_attr_current(attrs, 233))
+        .or_else(|| smartctl_attr_current(attrs, 202));
+
+    if let Some(v) = life_left {
+        if v > 0 && v < 100 {
+            return Some((100.0 - v as f64).clamp(0.0, 100.0));
+        }
+    }
+
+    if let Some(raw_used) = smartctl_attr_raw_u64(attrs, 202) {
+        if raw_used > 0 && raw_used <= 100 {
+            return Some(raw_used as f64);
+        }
+    }
+
+    None
+}
+
+fn normalize_endurance_percentage(diagnostics: &mut [DiskDiagnostics]) {
+    for diag in diagnostics.iter_mut() {
+        if is_nvme_diag(diag) {
+            continue;
+        }
+
+        let estimated = derive_endurance_used_from_attrs(&diag.smart_attributes);
+
+        match (diag.percentage_used, estimated) {
+            (Some(v), Some(used)) if v <= 0.0 && used > 0.0 => {
+                diag.percentage_used = Some(used);
+            }
+            (Some(v), None) if v <= 0.0 => {
+                // Placeholder zero from some drivers is misleading for SATA/USB.
+                diag.percentage_used = None;
+            }
+            (None, Some(used)) if used > 0.0 => {
+                diag.percentage_used = Some(used);
+            }
+            _ => {}
+        }
+    }
 }
 
 fn raw_temp_to_celsius(raw: f64) -> f64 {

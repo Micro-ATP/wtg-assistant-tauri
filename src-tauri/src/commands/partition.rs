@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use crate::Result;
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PartitionInfo {
@@ -10,6 +9,7 @@ pub struct PartitionInfo {
     pub size: u64,
     pub free: u64,
     pub disk_number: u32,
+    pub protocol: String,
     pub media_type: String,
 }
 
@@ -55,9 +55,29 @@ fn normalize_media_type(value: &serde_json::Value) -> String {
     }
 }
 
+fn normalize_protocol(value: &serde_json::Value) -> String {
+    let raw = value
+        .as_str()
+        .map(|s| s.trim().to_uppercase())
+        .unwrap_or_default();
+
+    match raw.as_str() {
+        "17" | "NVME" => "NVMe".to_string(),
+        "11" | "SATA" => "SATA".to_string(),
+        "7" | "USB" => "USB".to_string(),
+        "10" | "SAS" => "SAS".to_string(),
+        "8" | "RAID" => "RAID".to_string(),
+        "3" | "ATA" => "ATA".to_string(),
+        "1" | "SCSI" => "SCSI".to_string(),
+        "2" | "ATAPI" => "ATAPI".to_string(),
+        "12" | "SD" => "SD".to_string(),
+        "13" | "MMC" => "MMC".to_string(),
+        _ => "Unknown".to_string(),
+    }
+}
+
 fn parse_partition_info(
     v: &serde_json::Value,
-    disk_media_map: &HashMap<u32, String>,
 ) -> Option<PartitionInfo> {
     let drive_letter = normalize_drive_letter(&v["DriveLetter"]);
     if drive_letter.is_empty() {
@@ -65,10 +85,8 @@ fn parse_partition_info(
     }
 
     let disk_number = parse_u64(&v["DiskNumber"]) as u32;
-    let media_type = disk_media_map
-        .get(&disk_number)
-        .cloned()
-        .unwrap_or_else(|| normalize_media_type(&v["MediaType"]));
+    let protocol = normalize_protocol(&v["Protocol"]);
+    let media_type = normalize_media_type(&v["MediaType"]);
 
     Some(PartitionInfo {
         drive_letter,
@@ -77,6 +95,7 @@ fn parse_partition_info(
         size: parse_u64(&v["Size"]),
         free: parse_u64(&v["Free"]),
         disk_number,
+        protocol,
         media_type,
     })
 }
@@ -88,30 +107,63 @@ pub async fn list_partitions() -> Result<Vec<PartitionInfo>> {
     {
         use crate::utils::command::CommandExecutor;
 
-        // Reuse the same disk detection source as Configure page to keep media type consistent.
-        let disks = crate::platform::windows::list_disks().await?;
-        let mut disk_media_map: HashMap<u32, String> = HashMap::new();
-        for d in disks {
-            if let Ok(n) = d.index.parse::<u32>() {
-                disk_media_map.insert(n, normalize_media_type(&serde_json::Value::String(d.media_type)));
-            }
-        }
-
         let ps = r#"
+$disks = Get-Disk | Select-Object Number, MediaType, BusType
+$diskMediaMap = @{}
+$diskProtocolMap = @{}
+foreach ($d in $disks) {
+    $bus = [string]$d.BusType
+    $protocol = switch -Regex ($bus) {
+        '^17$|NVMe' { 'NVMe' }
+        '^11$|SATA' { 'SATA' }
+        '^7$|USB' { 'USB' }
+        '^10$|SAS' { 'SAS' }
+        '^8$|RAID' { 'RAID' }
+        '^3$|ATA' { 'ATA' }
+        '^1$|SCSI' { 'SCSI' }
+        '^2$|ATAPI' { 'ATAPI' }
+        '^12$|SD' { 'SD' }
+        '^13$|MMC' { 'MMC' }
+        default { 'Unknown' }
+    }
+    $diskProtocolMap[[string]$d.Number] = $protocol
+
+    $media = [string]$d.MediaType
+    if (-not $media -or $media -eq 'Unspecified' -or $media -eq '') {
+        if ($bus -match '(^17$|NVMe)') {
+            $media = 'SSD'
+        } else {
+            $media = 'Unknown'
+        }
+    }
+    $diskMediaMap[[string]$d.Number] = $media
+}
+
+$volumeMap = @{}
+Get-Volume | Where-Object DriveLetter -ne $null | ForEach-Object {
+    $volumeMap[[string]$_.DriveLetter] = $_
+}
+
+$result = @()
 Get-Partition | Where-Object DriveLetter -ne $null | ForEach-Object {
     $p = $_
-    $v = Get-Volume -DriveLetter $p.DriveLetter -ErrorAction SilentlyContinue
-    $d = Get-Disk -Number $p.DiskNumber -ErrorAction SilentlyContinue
-    [PSCustomObject]@{
-        DriveLetter = $p.DriveLetter
+    $dl = [string]$p.DriveLetter
+    $v = $volumeMap[$dl]
+    $m = $diskMediaMap[[string]$p.DiskNumber]
+    $proto = $diskProtocolMap[[string]$p.DiskNumber]
+    $result += [PSCustomObject]@{
+        DriveLetter = $dl
         Label       = if($v){$v.FileSystemLabel}else{""}
         FileSystem  = if($v){$v.FileSystem}else{""}
         Size        = if($v){$v.Size}else{0}
         Free        = if($v){$v.SizeRemaining}else{0}
         DiskNumber  = $p.DiskNumber
-        MediaType   = if($d){$d.MediaType}else{""}
+        Protocol    = if($proto){$proto}else{"Unknown"}
+        MediaType   = if($m){$m}else{""}
     }
-} | ConvertTo-Json
+}
+
+$result | ConvertTo-Json -Depth 4
 "#;
 
         let output = CommandExecutor::execute_allow_fail(
@@ -132,14 +184,14 @@ Get-Partition | Where-Object DriveLetter -ne $null | ForEach-Object {
         match parsed {
             serde_json::Value::Array(arr) => {
                 for v in arr {
-                    if let Some(info) = parse_partition_info(&v, &disk_media_map) {
+                    if let Some(info) = parse_partition_info(&v) {
                         res.push(info);
                     }
                 }
             }
             serde_json::Value::Object(_) => {
                 let v = parsed;
-                if let Some(info) = parse_partition_info(&v, &disk_media_map) {
+                if let Some(info) = parse_partition_info(&v) {
                     res.push(info);
                 }
             }

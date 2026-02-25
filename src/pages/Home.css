@@ -158,7 +158,7 @@
 
 /* === INFO TABLE === */
 .info-table {
-  padding: var(--spacing-lg) 0;
+  padding: 0;
 }
 
 .info-row {

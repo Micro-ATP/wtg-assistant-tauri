@@ -51,6 +51,15 @@ function HomePage() {
     setCurrentPage(page)
   }
 
+  const infoRows = systemInfo
+    ? [
+        { key: 'version', label: t('home.version'), value: systemInfo.version },
+        { key: 'arch', label: t('home.architecture'), value: systemInfo.arch },
+        { key: 'cpu', label: t('home.cpuModel'), value: systemInfo.cpu_model },
+        { key: 'memory', label: t('home.memoryCapacity'), value: formatBytes(systemInfo.total_memory) },
+      ].filter((row) => String(row.label ?? '').trim() && String(row.value ?? '').trim())
+    : []
+
   return (
     <div className="home-page">
       {/* Banner Section */}
@@ -72,22 +81,12 @@ function HomePage() {
         </div>
         {systemInfo ? (
           <div className="info-table">
-            <div className="info-row">
-              <span className="info-label">{t('home.version')}</span>
-              <span className="info-value">{systemInfo.version}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">{t('home.architecture')}</span>
-              <span className="info-value">{systemInfo.arch}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">{t('home.cpuModel')}</span>
-              <span className="info-value">{systemInfo.cpu_model}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">{t('home.memoryCapacity')}</span>
-              <span className="info-value">{formatBytes(systemInfo.total_memory)}</span>
-            </div>
+            {infoRows.map((row) => (
+              <div className="info-row" key={row.key}>
+                <span className="info-label">{row.label}</span>
+                <span className="info-value">{row.value}</span>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="loading">{t('messages.loading')}</div>

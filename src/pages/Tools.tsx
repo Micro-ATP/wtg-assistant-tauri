@@ -16,6 +16,14 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`
 }
 
+function formatMediaHealth(percentageUsed: number | null | undefined): string {
+  if (percentageUsed == null || Number.isNaN(percentageUsed)) return '--'
+  const used = Math.min(100, Math.max(0, percentageUsed))
+  const health = Math.max(0, 100 - used)
+  const rounded = Math.abs(health - Math.round(health)) < 0.05 ? `${Math.round(health)}` : health.toFixed(1)
+  return `${rounded}%`
+}
+
 function renderValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '--'
   if (Array.isArray(value)) return value.map((item) => String(item)).join(', ')
@@ -299,7 +307,7 @@ function ToolsPage() {
                   </div>
                   <div className="metric-card">
                     <span>{t('tools.mediaHealth') || '介质健康'}</span>
-                    <strong>{selectedDiag.percentage_used != null ? `${selectedDiag.percentage_used}%` : '--'}</strong>
+                    <strong>{formatMediaHealth(selectedDiag.percentage_used)}</strong>
                   </div>
                 </div>
 

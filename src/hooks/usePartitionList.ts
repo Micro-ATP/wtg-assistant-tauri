@@ -8,6 +8,7 @@ export interface PartitionInfo {
   size: number
   free: number
   disk_number: number
+  protocol: string
   media_type: string
 }
 

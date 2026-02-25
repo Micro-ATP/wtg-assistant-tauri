@@ -167,12 +167,23 @@ function BenchmarkPage() {
     [partitions],
   )
 
-  const getMediaLabel = (media: string) => {
-    const up = (media || '').toUpperCase()
-    if (up.includes('SSD') || up.includes('NVME') || up === '4') return 'SSD'
-    if (up.includes('HDD') || up.includes('ROTATIONAL') || up === '3') return 'HDD'
-    if (up.includes('USB')) return 'USB'
-    return 'Unknown'
+  const getProtocolLabel = (partition: PartitionInfo) => {
+    const proto = (partition.protocol || '').trim().toUpperCase()
+    if (proto === 'NVME') return 'NVMe'
+    if (proto === 'SATA') return 'SATA'
+    if (proto === 'USB') return 'USB'
+    if (proto === 'SAS') return 'SAS'
+    if (proto === 'RAID') return 'RAID'
+    if (proto === 'ATA') return 'ATA'
+    if (proto === 'SCSI') return 'SCSI'
+    if (proto === 'ATAPI') return 'ATAPI'
+    if (proto === 'SD') return 'SD'
+    if (proto === 'MMC') return 'MMC'
+
+    const media = (partition.media_type || '').toUpperCase()
+    if (media.includes('SSD') || media.includes('NVME') || media === '4') return 'SSD'
+    if (media.includes('HDD') || media.includes('ROTATIONAL') || media === '3') return 'HDD'
+    return 'Disk'
   }
 
   useEffect(() => {
@@ -311,12 +322,12 @@ function BenchmarkPage() {
                 className={`disk-item ${selectedDisk?.volume === p.drive_letter ? 'selected' : ''}`}
                 onClick={() => setSelectedDisk(mapPartitionToDiskInfo(p))}
               >
-                <div className="disk-icon">{getMediaLabel(p.media_type)}</div>
+                <div className="disk-icon">{getProtocolLabel(p)}</div>
                 <div className="disk-info">
                   <div className="disk-name">{p.label || 'Volume'}</div>
                   <div className="disk-details">
                     {p.drive_letter}:\\ - {formatBytes(p.size)}
-                    <span className="badge-removable">{getMediaLabel(p.media_type)}</span>
+                    <span className="badge-removable">{getProtocolLabel(p)}</span>
                   </div>
                 </div>
               </div>

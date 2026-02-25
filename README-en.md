@@ -1,221 +1,103 @@
-# Windows To Go Assistant (WTGA) v2.0
+# Windows To Go Assistant (WTGA)
 
-A modern, cross-platform utility for deploying Windows To Go on USB devices. Built with **Tauri**, **Rust**, and **React**.
+Windows To Go Assistant helps you deploy a Windows image to a USB drive and create a bootable portable Windows system.
 
-## 🌍 What is Windows To Go?
+[中文说明](./README.md)
 
-"Windows To Go" (WTG) is a Microsoft technology that allows you to:
-- Install a complete Windows operating system on portable USB devices
-- Run Windows directly from USB on different computers
-- Keep your portable Windows system with you everywhere
+## Quick Links
 
-It's not WinPE or a simplified version, but a **full Windows OS** installation on USB.
+- Download latest build: [Releases](../../releases)
+- Report a problem: [GitHub Issues](../../issues)
+- Community forum: [Luobotou Forum](https://bbs.luobotou.org/)
+- License: [LICENSE](./LICENSE)
 
-## ✨ Features
+## Navigation
 
-- **Cross-platform**: Windows, macOS, and Linux support
-- **Modern UI**: Beautiful React-based interface
-- **High Performance**: Rust backend for speed and efficiency
-- **Real-time Monitoring**: USB device detection and status updates
-- **Multi-language**: English, Simplified Chinese, Traditional Chinese
-- **Advanced Options**: Custom partition layout, boot size configuration
-- **Benchmark Tool**: Measure USB drive performance
-- **Minimal Footprint**: Small application size with low resource usage
+- [Before You Start](#before-you-start)
+- [Download and Install](#download-and-install)
+- [Quick Start](#quick-start)
+- [Benchmark Guide](#benchmark-guide)
+- [FAQ](#faq)
+- [Support](#support)
 
-## 🏗️ Project Structure
+## Before You Start
 
-```
-wtg-tauri/
-├── src-tauri/              # Rust backend (Tauri application)
-│   ├── src/
-│   │   ├── commands/       # Tauri commands exposed to frontend
-│   │   ├── platform/       # Platform-specific implementations
-│   │   │   ├── windows.rs
-│   │   │   ├── macos.rs
-│   │   │   └── linux.rs
-│   │   ├── services/       # High-level business logic
-│   │   ├── models/         # Data structures
-│   │   └── utils/          # Utility functions
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-│
-├── src/                    # React frontend
-│   ├── components/         # React components
-│   ├── pages/              # Page components
-│   ├── services/           # API communication & state
-│   ├── hooks/              # React hooks
-│   ├── types/              # TypeScript definitions
-│   ├── styles/             # Global styles
-│   └── App.tsx
-│
-├── public/                 # Static assets
-│   ├── locales/            # i18n translation files
-│   └── icons/              # Application icons
-│
-├── old_arch/              # Legacy .NET WinForms implementation (reference)
-│   ├── wintogo/           # Main application
-│   └── iTuner/            # USB device detection library
-│
-└── Configuration files
-    ├── package.json       # Frontend dependencies
-    ├── tsconfig.json      # TypeScript config
-    ├── vite.config.ts     # Vite build config
-    └── .eslintrc.json     # ESLint configuration
-```
+- Current version: `V0.0.1-Alpha`
+- The app is still in Alpha stage.
+- Write operations can repartition/format disks and permanently erase data.
+- Always make a full backup before using this tool.
 
-## 🚀 Getting Started
+## What This App Can Do
 
-### Prerequisites
+- Deploy ISO/WIM/ESD/VHD/VHDX images to a target USB disk
+- Configure boot mode and apply mode
+- Run USB benchmarks: quick, multi-thread, full-disk write, extreme
+- Provide a standalone Tools tab (expanding over time)
 
-- **Node.js** 16+ and npm/yarn
-- **Rust** 1.70+ (install from https://rustup.rs/)
-- **Tauri CLI** (will be installed via npm)
+## Download and Install
 
-### Installation
+1. Open [Releases](../../releases).
+2. Download the package for your architecture:
+   - Windows x64: choose `x86_64`
+   - Windows ARM64: choose `aarch64`
+3. Run with administrator privilege when possible.
 
-1. Clone the repository:
-```bash
-git clone https://github.com/your-org/wtg-tauri.git
-cd wtg-tauri
-```
+If installation is blocked by Windows security policy, see [FAQ](#faq) item 3.
 
-2. Install dependencies:
-```bash
-npm install
-```
+## Quick Start
 
-### Development
+1. Launch the app and confirm the risk notice.
+2. Open `Configure` and select a Windows image.
+3. Select target disk and verify disk letter/capacity.
+4. Adjust boot/apply options if needed.
+5. Open `Write`, click start, and confirm the erase warning.
+6. After completion, test boot on the target machine.
 
-Run the development server:
-```bash
-npm run tauri:dev
-```
+## Benchmark Guide
 
-This will:
-- Start the Vite dev server (frontend)
-- Build and run the Tauri application in dev mode
-- Enable hot-reload for both frontend and backend
+1. Open `Benchmark`.
+2. Select a volume with a valid drive letter.
+3. Select one or more test modes and start.
+4. Review sequential/4K speed, duration, and written data.
 
-### Building
+Note:
+- `Full-disk write` and `Extreme` modes perform heavy writes. Avoid running them on disks with important data.
 
-Build for your platform:
-```bash
-npm run tauri:build
-```
+## Tools Tab
 
-This creates:
-- **Windows**: MSI installer
-- **macOS**: DMG bundle
-- **Linux**: AppImage
+- A standalone `Tools` item is available in the sidebar.
+- This area is designed for practical utilities and will be expanded in future versions.
 
-## 📦 Technology Stack
+## FAQ
 
-### Frontend
-- **React 18**: UI framework
-- **TypeScript 5**: Type safety
-- **Vite**: Fast build tool and dev server
-- **Zustand**: State management
-- **i18next**: Internationalization
-- **Tailwind CSS**: Styling
+### 1) Permission denied / operation blocked
 
-### Backend
-- **Rust 2021 Edition**: High-performance backend
-- **Tauri 2.0**: Desktop app framework
-- **Tokio**: Async runtime
-- **Serde**: Serialization/deserialization
+- Run the app as administrator.
+- Check whether endpoint security software blocks disk access.
 
-### Platform-Specific Libraries
-- **Windows**: `winapi`, `wmi`, `windows` crate
-- **macOS**: `core-foundation`, `io-kit-sys`
-- **Linux**: `udev`, `nix`
+### 2) Target disk is not listed
 
-## 🔌 Key Commands
+- Reconnect the device and refresh the list.
+- Make sure the target has a recognized drive letter.
+- Avoid unstable hubs/docks when possible.
 
-### Frontend Commands
-- `npm run dev` - Start Vite dev server
-- `npm run build` - Build frontend
-- `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
-- `npm run type-check` - Check TypeScript
+### 3) Windows says Smart App Control blocked the installer
 
-### Tauri Commands
-- `npm run tauri:dev` - Run Tauri in dev mode
-- `npm run tauri:build` - Build application bundle
-- `npm run tauri` - Run Tauri CLI directly
+- This is a publisher trust policy from Windows.
+- Use a signed package in production environments, or adjust the policy in your test environment.
 
-## 🔄 Migration from v1
+## Support
 
-The original WinForms implementation is preserved in the `old_arch/` folder for reference:
-- **old_arch/wintogo/**: Original .NET/WinForms application
-- **old_arch/iTuner/**: Original USB device detection library
+- GitHub Issues: [Submit an issue](../../issues)
+- Community forum: [https://bbs.luobotou.org/](https://bbs.luobotou.org/)
 
-### Key Improvements in v2
-- ✅ Cross-platform support (Windows, macOS, Linux)
-- ✅ Modern, responsive UI
-- ✅ Better performance (Rust backend)
-- ✅ Smaller application footprint
-- ✅ Improved code maintainability
+Please include:
 
-## 🌐 Supported Languages
+- app version
+- OS version
+- reproduction steps
+- screenshots or logs
 
-- 🇬🇧 English
-- 🇨🇳 Simplified Chinese (简体中文)
-- 🇹🇼 Traditional Chinese (繁體中文)
+## License
 
-Add more languages by creating locale JSON files in `public/locales/`
-
-## 🔐 Security
-
-- Requires administrator/root privileges for disk operations
-- All system commands are validated
-- No external service dependencies
-- Offline operation
-
-## 📋 Roadmap
-
-- [ ] Linux and macOS platform implementation
-- [ ] Advanced write options (fast write, verify)
-- [ ] Disk cloning functionality
-- [ ] System integration (context menu support)
-- [ ] Update checker
-- [ ] Detailed logging and diagnostics
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**"Permission denied" errors**
-- Ensure the application has administrator/root privileges
-
-**"Device not found"**
-- Check that USB device is properly connected
-- Try refreshing the device list
-
-**Build errors**
-- Ensure Rust is up to date: `rustup update`
-- Clear build cache: `cargo clean`
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
-
-## 📄 License
-
-[Check LICENSE file](./LICENSE)
-
-## 🙏 Acknowledgments
-
-- Original concept by the WTG community
-- Luobotou IT Forum for community support
-
-## 📞 Support
-
-- Community Forum: https://bbs.luobotou.org/
-- GitHub Issues: Report bugs and feature requests
-
----
-
-**Built with ❤️ using Tauri, Rust, and React**
+This project is licensed under `AGPL-3.0-only`. See [LICENSE](./LICENSE).

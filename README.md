@@ -1,161 +1,103 @@
-# Windows To Go 助手 (WTGA) v2.0
+# Windows To Go 助手 (WTGA)
 
-一个现代化的跨平台工具，用于在 USB 设备上部署 Windows To Go。采用 **Tauri**、**Rust** 和 **React** 构建。
+Windows To Go 助手用于把 Windows 映像部署到 USB 磁盘，制作可启动的便携 Windows 系统。
 
-## 🌍 什么是 Windows To Go？
+[English README](./README-en.md)
 
-"Windows To Go" (WTG) 是 Microsoft 提供的一项技术，允许你：
-- 在便携式 USB 设备上完整安装 Windows 操作系统
-- 在不同计算机硬件上直接运行 USB 中的 Windows
-- 随身携带你的便携式 Windows 系统
+## 快速入口
 
-这不是 WinPE 或简化版本，而是一个**完整的 Windows 操作系统**的 USB 安装。
+- 下载最新版: [Releases](../../releases)
+- 提交问题: [GitHub Issues](../../issues)
+- 社区交流: [Luobotou 论坛](https://bbs.luobotou.org/)
+- 许可证: [LICENSE](./LICENSE)
 
-## ✨ 功能特性
+## 内容导航
 
-- **跨平台支持**：Windows、macOS 和 Linux
-- **现代化 UI**：基于 React 的美观界面
-- **高性能**：Rust 后端提供速度和效率
-- **实时监控**：USB 设备检测和状态更新
-- **多语言支持**：英文、简体中文、繁体中文
-- **高级选项**：自定义分区布局、启动分区大小配置
-- **基准测试工具**：衡量 USB 驱动器性能
-- **最小占用**：小应用体积，低资源占用
+- [使用前必读](#使用前必读)
+- [下载安装](#下载安装)
+- [三分钟上手](#三分钟上手)
+- [基准测试怎么用](#基准测试怎么用)
+- [常见问题](#常见问题)
+- [反馈与支持](#反馈与支持)
 
+## 使用前必读
 
-## 🚀 快速开始
+- 当前版本: `V0.0.1-Alpha`
+- 软件仍处于 Alpha 阶段，稳定性未完全验证。
+- 写入操作会修改分区和文件系统，可能导致目标盘数据不可恢复。
+- 请务必提前完整备份，不要直接操作含重要数据的磁盘。
 
-### 系统要求
+## 这款软件能做什么
 
-- **Node.js** 16+ 和 npm/yarn
-- **Rust** 1.70+ (从 https://rustup.rs/ 安装)
-- **Tauri CLI** (会通过 npm 自动安装)
+- 部署 ISO/WIM/ESD/VHD/VHDX 到目标 USB 磁盘
+- 配置启动模式与部署方式
+- 进行 USB 基准测试: 快速、多线程、全盘写入、极限模式
+- 提供独立的小工具分栏（持续扩展）
 
-### 安装步骤
+## 下载安装
 
-1. 克隆仓库：
-```bash
-git clone https://github.com/your-org/wtg-tauri.git
-cd wtg-tauri
-```
+1. 打开 [Releases](../../releases) 页面。
+2. 按系统架构下载安装包:
+   - Windows x64: 选择 `x86_64` 包
+   - Windows ARM64: 选择 `aarch64` 包
+3. 安装或运行时请务必使用管理员权限，否则大多数功能无法使用。
 
-2. 安装依赖：
-```bash
-npm install
-```
+如果安装时遇到系统拦截，先看 [常见问题](#常见问题) 的第 3 条。
 
-### 开发
+## 三分钟上手
 
-运行开发服务器：
-```bash
-npm run tauri:dev
-```
+1. 打开软件，阅读并确认风险提示。
+2. 进入 `配置` 页面，选择 Windows 映像。
+3. 选择目标磁盘，确认盘符和容量无误。
+4. 按需调整启动模式、部署方式和附加选项。
+5. 进入 `写入` 页面，点击开始并再次确认擦除告警。
+6. 完成后在目标设备上测试启动。
 
-这将会：
-- 启动 Vite 开发服务器（前端）
-- 构建并运行 Tauri 应用（开发模式）
-- 启用前后端热重载
+## 基准测试怎么用
 
-### 构建
+1. 打开 `基准测试` 页面。
+2. 选择有盘符的目标卷。
+3. 勾选测试模式并开始。
+4. 查看顺序写入、4K 写入、耗时和写入量。
 
-为您的平台构建：
-```bash
-npm run tauri:build
-```
+说明:
+- `全盘写入` 与 `极限模式` 会进行大量写入，不要用于重要数据盘。
 
-生成以下文件：
-- **Windows**: MSI 安装程序
-- **macOS**: DMG 包
-- **Linux**: AppImage
+## 小工具分栏
 
+- 侧边栏已提供 `小工具` 独立入口。
+- 当前是扩展区域，后续会持续增加实用功能。
 
-## 🔌 常用命令
+## 常见问题
 
-### 前端命令
-- `npm run dev` - 启动 Vite 开发服务器
-- `npm run build` - 构建前端
-- `npm run preview` - 预览生产构建
-- `npm run lint` - 运行 ESLint
-- `npm run type-check` - 检查 TypeScript
+### 1) 提示权限不足或操作被拒绝
 
-### Tauri 命令
-- `npm run tauri:dev` - 开发模式运行 Tauri
-- `npm run tauri:build` - 构建应用程序包
-- `npm run tauri` - 直接运行 Tauri CLI
+- 以管理员身份运行软件。
+- 检查安全软件是否拦截磁盘访问。
 
-## 🔄 从 v1 迁移
+### 2) 看不到目标磁盘
 
-原始 WinForms 实现保存在 `old_arch/` 文件夹中供参考：
-- **old_arch/wintogo/**：原始 .NET/WinForms 应用程序
-- **old_arch/iTuner/**：原始 USB 设备检测库
+- 重新插拔设备后刷新列表。
+- 确认磁盘有可识别盘符。
+- 尽量避免通过不稳定的扩展坞连接。
 
-### v2 的主要改进
-- ✅ 跨平台支持（Windows、macOS、Linux）
-- ✅ 现代化的响应式 UI
-- ✅ 更好的性能（Rust 后端）
-- ✅ 更小的应用体积
-- ✅ 改进的代码可维护性
+### 3) Windows 提示“智能应用控制已阻止”
 
-## 🌐 支持的语言
+- 这是系统对未知发布者的安全拦截，不是写入逻辑本身报错。
+- 你可以在受控测试环境中调整该策略，不建议使用msi包，优先考虑exe安装包。
 
-- 🇬🇧 English（英文）
-- 🇨🇳 Simplified Chinese（简体中文）
-- 🇹🇼 Traditional Chinese（繁體中文）
+## 反馈与支持
 
-通过在 `public/locales/` 中创建区域设置 JSON 文件来添加更多语言。
+- GitHub Issues: [提交问题](../../issues)
+- 社区论坛: [https://bbs.luobotou.org/](https://bbs.luobotou.org/)
 
-## 🔐 安全性
+建议反馈时附带:
 
-- 磁盘操作需要管理员/root 权限
-- 所有系统命令都经过验证
-- 无外部服务依赖
-- 离线操作
+- 软件版本
+- 操作系统版本
+- 复现步骤
+- 错误截图或日志
 
-## 📋 开发规划
+## 许可证
 
-- [ ] Linux 和 macOS 平台实现
-- [ ] 高级写入选项（快速写入、验证）
-- [ ] 磁盘克隆功能
-- [ ] 系统集成（右键菜单支持）
-- [ ] 更新检查器
-- [ ] 详细的日志和诊断
-
-## 🐛 故障排除
-
-### 常见问题
-
-**"权限被拒绝"错误**
-- 确保应用程序具有管理员/root 权限
-
-**"设备未找到"**
-- 检查 USB 设备是否正确连接
-- 尝试刷新设备列表
-
-**构建错误**
-- 确保 Rust 是最新的：`rustup update`
-- 清除构建缓存：`cargo clean`
-
-## 🤝 贡献
-
-欢迎贡献！请：
-1. Fork 仓库
-2. 创建特性分支
-3. 提交拉取请求
-
-## 📄 许可证
-
-[检查 LICENSE 文件](./LICENSE)
-
-## 🙏 致谢
-
-- WTG 社区的原始概念
-- Luobotou IT 论坛的社区支持
-
-## 📞 支持
-
-- 社区论坛：https://bbs.luobotou.org/
-- GitHub Issues：报告 bug 和功能请求
-
----
-
-**用 ❤️ 使用 Tauri、Rust 和 React 构建**
+本项目采用 `AGPL-3.0-only`，详见 [LICENSE](./LICENSE)。

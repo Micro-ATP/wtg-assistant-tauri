@@ -1,6 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Submit an issue/General Questions
+  - name: Forum Support
     url: https://bbs.luobotou.org/forum-88-1.html
-    about: Please submit any issues or ask any questions at the Luobotou IT Forum.
-    
+    about: You can ask questions in the forum, or submit issues directly on GitHub Issues.

@@ -18,6 +18,7 @@ function formatBytes(bytes: number): string {
 
 function renderValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '--'
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(', ')
   if (typeof value === 'number') return String(value)
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   return String(value)
@@ -56,6 +57,78 @@ function ToolsPage() {
     () => diagnostics.find((d) => d.id === selectedDiagId) ?? diagnostics[0] ?? null,
     [diagnostics, selectedDiagId],
   )
+
+  const localizeReliabilityKey = (key: string): string => {
+    const map: Record<string, string> = {
+      Temperature: 'temperature',
+      Wear: 'wear',
+      PowerOnHours: 'powerOnHours',
+      PowerCycleCount: 'powerCycleCount',
+      ReadErrorsTotal: 'readErrorsTotal',
+      WriteErrorsTotal: 'writeErrorsTotal',
+      HostReadsTotal: 'hostReadsTotal',
+      HostWritesTotal: 'hostWritesTotal',
+      ReadErrorsUncorrected: 'readErrorsUncorrected',
+      WriteErrorsUncorrected: 'writeErrorsUncorrected',
+      'Smartctl.Device': 'smartctlDevice',
+      'Smartctl.DeviceType': 'smartctlDeviceType',
+      'Smartctl.Protocol': 'smartctlProtocol',
+      'Smartctl.ExitStatus': 'smartctlExitStatus',
+      'Smartctl.RotationRate': 'smartctlRotationRate',
+      'Smartctl.UserCapacityBytes': 'smartctlUserCapacityBytes',
+      'Smartctl.AtaAttributeCount': 'smartctlAtaAttributeCount',
+      'Nvme.CriticalWarning': 'nvmeCriticalWarning',
+      'Nvme.AvailableSpare': 'nvmeAvailableSpare',
+      'Nvme.AvailableSpareThreshold': 'nvmeAvailableSpareThreshold',
+      'Nvme.PercentageUsed': 'nvmePercentageUsed',
+      'Nvme.DataUnitsRead': 'nvmeDataUnitsRead',
+      'Nvme.DataUnitsWritten': 'nvmeDataUnitsWritten',
+      'Nvme.HostReads': 'nvmeHostReads',
+      'Nvme.HostWrites': 'nvmeHostWrites',
+      'Nvme.ControllerBusyTime': 'nvmeControllerBusyTime',
+      'Nvme.PowerCycles': 'nvmePowerCycles',
+      'Nvme.PowerOnHours': 'nvmePowerOnHours',
+      'Nvme.UnsafeShutdowns': 'nvmeUnsafeShutdowns',
+      'Nvme.MediaErrors': 'nvmeMediaErrors',
+      'Nvme.ErrorLogEntries': 'nvmeErrorLogEntries',
+      'NvmeIoctl.CriticalWarning': 'nvmeCriticalWarning',
+      'NvmeIoctl.AvailableSpare': 'nvmeAvailableSpare',
+      'NvmeIoctl.AvailableSpareThreshold': 'nvmeAvailableSpareThreshold',
+      'NvmeIoctl.PercentageUsed': 'nvmePercentageUsed',
+      'NvmeIoctl.DataUnitsRead': 'nvmeDataUnitsRead',
+      'NvmeIoctl.DataUnitsWritten': 'nvmeDataUnitsWritten',
+      'NvmeIoctl.HostReadCommands': 'nvmeHostReadCommands',
+      'NvmeIoctl.HostWriteCommands': 'nvmeHostWriteCommands',
+      'NvmeIoctl.ControllerBusyTime': 'nvmeControllerBusyTime',
+      'NvmeIoctl.PowerCycles': 'nvmePowerCycles',
+      'NvmeIoctl.PowerOnHours': 'nvmePowerOnHours',
+      'NvmeIoctl.UnsafeShutdowns': 'nvmeUnsafeShutdowns',
+      'NvmeIoctl.MediaErrors': 'nvmeMediaErrors',
+      'NvmeIoctl.ErrorLogEntries': 'nvmeErrorLogEntries',
+      'NvmeIoctl.WarningTempTime': 'nvmeWarningTempTime',
+      'NvmeIoctl.CriticalTempTime': 'nvmeCriticalTempTime',
+      'NvmeIoctl.TemperatureSensors': 'nvmeTemperatureSensors',
+    }
+    const mapped = map[key]
+    return mapped ? t(`tools.reliabilityKey.${mapped}`) : key
+  }
+
+  const localizeSmartAttrName = (id: number, fallback: string): string => {
+    const localized = t(`tools.smartAttrName.${id}`)
+    return localized && localized !== `tools.smartAttrName.${id}` ? localized : fallback
+  }
+
+  const localizeSmartSource = (source: string): string => {
+    if (!source) return '--'
+    const parts = source.split('+').map((part) => part.trim()).filter(Boolean)
+    if (!parts.length) return source
+    return parts
+      .map((part) => {
+        const localized = t(`tools.smartSourceCode.${part}`)
+        return localized && localized !== `tools.smartSourceCode.${part}` ? localized : part
+      })
+      .join(' + ')
+  }
 
   const reliabilityRows = useMemo(() => {
     if (!selectedDiag?.reliability || typeof selectedDiag.reliability !== 'object') return []
@@ -209,14 +282,14 @@ function ToolsPage() {
                 </div>
 
                 <div className="detail-grid">
-                  <div className="detail-item"><span>ID</span><strong>{selectedDiag.id}</strong></div>
+                  <div className="detail-item"><span>{t('tools.diskId') || '磁盘 ID'}</span><strong>{selectedDiag.id}</strong></div>
                   <div className="detail-item"><span>{t('tools.transportType') || '传输类型'}</span><strong>{selectedDiag.transport_type || '--'}</strong></div>
-                  <div className="detail-item"><span>USB</span><strong>{selectedDiag.is_usb ? yesLabel : noLabel}</strong></div>
+                  <div className="detail-item"><span>{t('tools.usbDevice') || 'USB 设备'}</span><strong>{selectedDiag.is_usb ? yesLabel : noLabel}</strong></div>
                   <div className="detail-item"><span>{t('tools.interfaceType') || '接口类型'}</span><strong>{selectedDiag.interface_type || '--'}</strong></div>
-                  <div className="detail-item"><span>Bus</span><strong>{selectedDiag.bus_type || '--'}</strong></div>
+                  <div className="detail-item"><span>{t('tools.busType') || '总线类型'}</span><strong>{selectedDiag.bus_type || '--'}</strong></div>
                   <div className="detail-item"><span>{t('tools.mediaType') || '介质类型'}</span><strong>{selectedDiag.media_type || '--'}</strong></div>
                   <div className="detail-item"><span>{t('tools.capacity') || '容量'}</span><strong>{formatBytes(selectedDiag.size_bytes)}</strong></div>
-                  <div className="detail-item"><span>{t('tools.smartSource') || 'SMART 数据来源'}</span><strong>{selectedDiag.smart_data_source || '--'}</strong></div>
+                  <div className="detail-item"><span>{t('tools.smartSource') || 'SMART 数据来源'}</span><strong>{localizeSmartSource(selectedDiag.smart_data_source)}</strong></div>
                   <div className="detail-item"><span>{t('tools.smartSupported') || 'SMART 支持'}</span><strong>{selectedDiag.smart_supported ? yesLabel : noLabel}</strong></div>
                   <div className="detail-item"><span>{t('tools.smartEnabled') || 'SMART 已启用'}</span><strong>{selectedDiag.smart_enabled ? yesLabel : noLabel}</strong></div>
                   <div className="detail-item"><span>{t('tools.isSystemDisk') || '系统盘'}</span><strong>{selectedDiag.is_system ? yesLabel : noLabel}</strong></div>
@@ -225,8 +298,8 @@ function ToolsPage() {
                   <div className="detail-item"><span>{t('tools.hostReads') || '主机读取总量'}</span><strong>{selectedDiag.host_reads_total ?? '--'}</strong></div>
                   <div className="detail-item"><span>{t('tools.hostWrites') || '主机写入总量'}</span><strong>{selectedDiag.host_writes_total ?? '--'}</strong></div>
                   <div className="detail-item"><span>{t('tools.uniqueId') || '唯一标识'}</span><strong>{selectedDiag.unique_id || '--'}</strong></div>
-                  <div className="detail-item"><span>PNP ID</span><strong>{selectedDiag.pnp_device_id || '--'}</strong></div>
-                  <div className="detail-item"><span>USB VID:PID</span><strong>{selectedDiag.usb_vendor_id && selectedDiag.usb_product_id ? `${selectedDiag.usb_vendor_id}:${selectedDiag.usb_product_id}` : '--'}</strong></div>
+                  <div className="detail-item"><span>{t('tools.pnpId') || 'PNP 标识'}</span><strong>{selectedDiag.pnp_device_id || '--'}</strong></div>
+                  <div className="detail-item"><span>{t('tools.usbVidPid') || 'USB VID:PID'}</span><strong>{selectedDiag.usb_vendor_id && selectedDiag.usb_product_id ? `${selectedDiag.usb_vendor_id}:${selectedDiag.usb_product_id}` : '--'}</strong></div>
                 </div>
 
                 {selectedDiag.smart_attributes?.length ? (
@@ -247,7 +320,7 @@ function ToolsPage() {
                         {selectedDiag.smart_attributes.map((attr) => (
                           <tr key={`${attr.id}-${attr.name}`}>
                             <td>{attr.id}</td>
-                            <td>{attr.name}</td>
+                            <td>{localizeSmartAttrName(attr.id, attr.name)}</td>
                             <td>{attr.current ?? '--'}</td>
                             <td>{attr.worst ?? '--'}</td>
                             <td>{attr.threshold ?? '--'}</td>
@@ -269,7 +342,7 @@ function ToolsPage() {
                     <div className="reliability-grid">
                       {reliabilityRows.map(([key, value]) => (
                         <div className="reliability-item" key={key}>
-                          <span>{key}</span>
+                          <span>{localizeReliabilityKey(key)}</span>
                           <strong>{renderValue(value)}</strong>
                         </div>
                       ))}

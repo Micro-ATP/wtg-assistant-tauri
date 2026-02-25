@@ -594,53 +594,10 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
     for diag in diagnostics.iter_mut() {
         let looks_nvme = is_nvme_diag(diag);
         let mut nvme_ok = false;
+        let mut ata_ok = false;
 
         if looks_nvme {
-            match smart::nvme::NVMeHandle::open(diag.disk_number) {
-                Ok(handle) => {
-                    if let Ok(id_ctrl) = handle.read_identify_controller() {
-                        if diag.model.trim().is_empty() && !id_ctrl.model.is_empty() {
-                            diag.model = id_ctrl.model;
-                        }
-                        if (diag.serial_number.trim().is_empty()
-                            || is_masked_serial(&diag.serial_number))
-                            && !id_ctrl.serial_number.is_empty()
-                        {
-                            diag.serial_number = id_ctrl.serial_number;
-                        }
-                        if diag.firmware_version.trim().is_empty() && !id_ctrl.firmware_version.is_empty() {
-                            diag.firmware_version = id_ctrl.firmware_version;
-                        }
-                    }
-
-                    match handle.read_smart_data() {
-                        Ok(nvme_data) => {
-                            nvme_ok = true;
-                            info!(
-                                "Successfully read NVMe SMART data for disk {}",
-                                diag.disk_number
-                            );
-                            apply_native_nvme_data(diag, &nvme_data);
-                            add_note_unique(
-                                diag,
-                                "NVMe SMART data read directly via Windows Storage Query API.",
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to read NVMe SMART data for disk {}: {}",
-                                diag.disk_number, e
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to open NVMe disk {} for SMART reading: {}",
-                        diag.disk_number, e
-                    );
-                }
-            }
+            nvme_ok = try_enrich_native_nvme(diag);
         }
 
         if nvme_ok {
@@ -687,6 +644,7 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
                             "ATA SMART data read directly via Windows IOCTL (native API).",
                         );
                     }
+                    ata_ok = true;
                 }
                 Err(e) => {
                     warn!(
@@ -702,6 +660,12 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
                 );
             }
         }
+
+        // CrystalDiskInfo also has many fallback probing paths; as a lightweight step we try
+        // NVMe Storage Query again when ATA path failed, for misreported bridge/controller cases.
+        if !looks_nvme && !ata_ok {
+            let _ = try_enrich_native_nvme(diag);
+        }
     }
 }
 
@@ -716,7 +680,56 @@ fn is_nvme_diag(diag: &DiskDiagnostics) -> bool {
     )
     .to_ascii_uppercase();
 
-    haystack.contains("NVME") || haystack.contains("NVMEXPRESS")
+    haystack.contains("NVME") || haystack.contains("NVMEXPRESS") || haystack.contains("OPTANE")
+}
+
+fn try_enrich_native_nvme(diag: &mut DiskDiagnostics) -> bool {
+    match smart::nvme::NVMeHandle::open(diag.disk_number) {
+        Ok(handle) => {
+            if let Ok(id_ctrl) = handle.read_identify_controller() {
+                if diag.model.trim().is_empty() && !id_ctrl.model.is_empty() {
+                    diag.model = id_ctrl.model;
+                }
+                if (diag.serial_number.trim().is_empty() || is_masked_serial(&diag.serial_number))
+                    && !id_ctrl.serial_number.is_empty()
+                {
+                    diag.serial_number = id_ctrl.serial_number;
+                }
+                if diag.firmware_version.trim().is_empty() && !id_ctrl.firmware_version.is_empty() {
+                    diag.firmware_version = id_ctrl.firmware_version;
+                }
+            }
+
+            match handle.read_smart_data() {
+                Ok(nvme_data) => {
+                    info!(
+                        "Successfully read NVMe SMART data for disk {}",
+                        diag.disk_number
+                    );
+                    apply_native_nvme_data(diag, &nvme_data);
+                    add_note_unique(
+                        diag,
+                        "NVMe SMART data read directly via Windows Storage Query API.",
+                    );
+                    true
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to read NVMe SMART data for disk {}: {}",
+                        diag.disk_number, e
+                    );
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            warn!(
+                "Failed to open NVMe disk {} for SMART reading: {}",
+                diag.disk_number, e
+            );
+            false
+        }
+    }
 }
 
 fn apply_native_nvme_data(diag: &mut DiskDiagnostics, nvme_data: &smart::nvme::NVMeSmartData) {

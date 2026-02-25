@@ -131,3 +131,51 @@ export const FolderIcon: React.FC<IconProps> = ({ size = 20, color = 'currentCol
     <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
   </svg>
 )
+
+export const CogIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={color} stroke="none" className={className}>
+    <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.48.48 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.56-.2l-2.39.96a7.03 7.03 0 0 0-1.66-.92l-.38-2.55a.5.5 0 0 0-.48-.42h-3.84a.5.5 0 0 0-.48.42L9.22 5.4c-.61.23-1.17.54-1.66.92l-2.39-.96a.5.5 0 0 0-.56.2L2.69 8.88a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.48.48 0 0 0-.12.61l1.92 3.32c.11.2.35.28.56.2l2.39-.96c.49.38 1.05.69 1.66.92l.38 2.55c.04.24.24.42.48.42h3.84c.24 0 .44-.18.48-.42l.38-2.55c.61-.23 1.17-.54 1.66-.92l2.39.96c.21.08.45 0 .56-.2l1.92-3.32a.48.48 0 0 0-.12-.61l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" />
+  </svg>
+)
+
+export const PaletteIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
+    <path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a3 3 0 0 1 0-6h.5a6.5 6.5 0 0 0 0-13z" />
+    <circle cx="7.5" cy="10" r="1" />
+    <circle cx="9.5" cy="6.8" r="1" />
+    <circle cx="13.1" cy="6" r="1" />
+  </svg>
+)
+
+export const GlobeIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+  </svg>
+)
+
+export const LinkOutIcon: React.FC<IconProps> = ({ size = 20, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
+    <path d="M10 14L21 3" />
+    <path d="M14 3h7v7" />
+    <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+  </svg>
+)
+
+export const CheckIcon: React.FC<IconProps> = ({ size = 18, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" className={className}>
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+)
+
+export const HeartIcon: React.FC<IconProps> = ({ size = 18, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={color} stroke={color} strokeWidth="1.4" strokeLinecap="round" className={className}>
+    <path d="M12 21s-6.7-4.4-9-8.4C1.3 9.3 3 5 7 5c2.1 0 3.3 1 5 3 1.7-2 2.9-3 5-3 4 0 5.7 4.3 4 7.6-2.3 4-9 8.4-9 8.4z" />
+  </svg>
+)
+
+export const ChevronDownIcon: React.FC<IconProps> = ({ size = 18, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)

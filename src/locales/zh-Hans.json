@@ -312,6 +312,23 @@
       "250": "读取错误重试率"
     }
   },
+  "settingsPage": {
+    "themeTitle": "应用主题",
+    "themeDesc": "切换浅色/深色模式",
+    "themeLight": "明亮",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "languageTitle": "语言",
+    "languageDesc": "切换软件显示语言",
+    "latestVersion": "已是最新版本",
+    "checkingUpdate": "正在检查更新...",
+    "updateCheckFailed": "检查更新失败，点击重试",
+    "newVersionFound": "发现新版本：{{version}}",
+    "innerBuild": "当前版本高于公开版本（内测构建）",
+    "reportFeedback": "报告错误或提交意见",
+    "viewRepo": "查看仓库",
+    "donate": "我很可爱，请给我钱"
+  },
   "errors": {
     "deviceNotFound": "设备未找到",
     "permissionDenied": "权限被拒绝",

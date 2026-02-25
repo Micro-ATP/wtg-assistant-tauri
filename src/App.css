@@ -2,15 +2,15 @@
 .app-container {
   display: flex;
   height: 100vh;
-  background: var(--color-background-primary);
+  background: var(--color-background-canvas);
   color: var(--color-text-primary);
 }
 
 .main-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-3xl);
-  background: var(--color-background-primary);
+  padding: 14px 20px 20px;
+  background: var(--color-background-canvas);
   animation: fadeIn var(--motion-duration-medium) var(--motion-easing-entrance);
 }
 
@@ -108,13 +108,13 @@
   }
 
   .main-content {
-    padding: var(--spacing-2xl);
+    padding: 12px 14px 16px;
     overflow-y: auto;
   }
 }
 
 @media (max-width: 480px) {
   .main-content {
-    padding: var(--spacing-xl);
+    padding: 10px 12px 14px;
   }
 }

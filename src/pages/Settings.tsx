@@ -1,0 +1,278 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { open } from '@tauri-apps/plugin-shell'
+import { useTheme } from '../hooks/useTheme'
+import { useAppStore } from '../services/store'
+import { SunIcon, GlobeIcon, CogIcon, CheckIcon, LinkOutIcon, HeartIcon, ChevronDownIcon, SpinnerIcon, RefreshIcon } from '../components/Icons'
+import './Settings.css'
+
+type ThemeValue = 'light' | 'dark' | 'system'
+type AppLanguage = 'en' | 'zh-Hans' | 'zh-Hant'
+
+const REPORT_URL = 'https://github.com/Micro-ATP/wtg-assistant-tauri/issues'
+const REPO_URL = 'https://github.com/Micro-ATP/wtg-assistant-tauri'
+const DONATE_URL = 'https://ifdian.net/a/micro-atp'
+const RELEASES_LATEST_API = 'https://api.github.com/repos/Micro-ATP/wtg-assistant-tauri/releases/latest'
+const TAGS_LATEST_API = 'https://api.github.com/repos/Micro-ATP/wtg-assistant-tauri/tags?per_page=1'
+
+async function openExternal(url: string) {
+  try {
+    await open(url)
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function normalizeVersion(input: string): string {
+  return input.trim().replace(/^v/i, '').split('-')[0]
+}
+
+function compareVersions(aRaw: string, bRaw: string): number | null {
+  const a = normalizeVersion(aRaw)
+  const b = normalizeVersion(bRaw)
+  const parse = (v: string): number[] =>
+    v
+      .split('.')
+      .map((part) => Number(part))
+      .filter((n) => Number.isFinite(n))
+
+  const pa = parse(a)
+  const pb = parse(b)
+  if (!pa.length || !pb.length) {
+    return null
+  }
+
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i += 1) {
+    const av = pa[i] ?? 0
+    const bv = pb[i] ?? 0
+    if (av > bv) return 1
+    if (av < bv) return -1
+  }
+  return 0
+}
+
+function SettingsPage() {
+  const { t, i18n } = useTranslation()
+  const { language, setLanguage } = useAppStore()
+  const { theme, setTheme } = useTheme()
+  const [aboutExpanded, setAboutExpanded] = useState(true)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+  const [latestTag, setLatestTag] = useState<string | null>(null)
+  const [updateState, setUpdateState] = useState<'latest' | 'update' | 'beta' | 'error'>('latest')
+  const [updateMessage, setUpdateMessage] = useState<string>(t('settingsPage.checkingUpdate') || 'Checking for updates...')
+
+  const currentVersion = useMemo(() => t('common.version') || 'V0.0.1-Alpha', [t])
+
+  const themeOptions: Array<{ value: ThemeValue; label: string }> = [
+    { value: 'light', label: t('settingsPage.themeLight') || '明亮' },
+    { value: 'dark', label: t('settingsPage.themeDark') || '深色' },
+    { value: 'system', label: t('settingsPage.themeSystem') || '跟随系统' },
+  ]
+
+  const languageOptions: Array<{ value: AppLanguage; label: string }> = [
+    { value: 'zh-Hans', label: '简体中文' },
+    { value: 'zh-Hant', label: '繁體中文' },
+    { value: 'en', label: 'English' },
+  ]
+
+  const handleLanguageChange = (nextLang: AppLanguage) => {
+    setLanguage(nextLang)
+    void i18n.changeLanguage(nextLang)
+  }
+
+  const fetchLatestTag = useCallback(async (): Promise<string | null> => {
+    const requestInit: RequestInit = {
+      headers: {
+        Accept: 'application/vnd.github+json',
+      },
+      cache: 'no-store',
+    }
+
+    try {
+      const latestResp = await fetch(RELEASES_LATEST_API, requestInit)
+      if (latestResp.ok) {
+        const latestData = (await latestResp.json()) as { tag_name?: string }
+        if (latestData?.tag_name) {
+          return latestData.tag_name
+        }
+      }
+    } catch {
+      // ignore and fallback to tags
+    }
+
+    try {
+      const tagsResp = await fetch(TAGS_LATEST_API, requestInit)
+      if (tagsResp.ok) {
+        const tags = (await tagsResp.json()) as Array<{ name?: string }>
+        const firstTag = tags?.[0]?.name
+        if (firstTag) {
+          return firstTag
+        }
+      }
+    } catch {
+      // ignore and return null
+    }
+
+    return null
+  }, [])
+
+  const checkForUpdate = useCallback(async () => {
+    setIsCheckingUpdate(true)
+    setUpdateMessage(t('settingsPage.checkingUpdate') || 'Checking for updates...')
+    setUpdateState('latest')
+
+    try {
+      const remoteTag = await fetchLatestTag()
+      if (!remoteTag) {
+        setUpdateState('error')
+        setLatestTag(null)
+        setUpdateMessage(t('settingsPage.updateCheckFailed') || 'Failed to check updates')
+        return
+      }
+
+      setLatestTag(remoteTag)
+      const cmp = compareVersions(currentVersion, remoteTag)
+      if (cmp === null) {
+        const same = normalizeVersion(currentVersion).toLowerCase() === normalizeVersion(remoteTag).toLowerCase()
+        if (same) {
+          setUpdateState('latest')
+          setUpdateMessage(t('settingsPage.latestVersion') || 'Already the latest version')
+        } else {
+          setUpdateState('update')
+          setUpdateMessage((t('settingsPage.newVersionFound') || 'New version found: {{version}}').replace('{{version}}', remoteTag))
+        }
+        return
+      }
+
+      if (cmp < 0) {
+        setUpdateState('update')
+        setUpdateMessage((t('settingsPage.newVersionFound') || 'New version found: {{version}}').replace('{{version}}', remoteTag))
+      } else if (cmp > 0) {
+        setUpdateState('beta')
+        setUpdateMessage(t('settingsPage.innerBuild') || 'Current build is ahead of public release')
+      } else {
+        setUpdateState('latest')
+        setUpdateMessage(t('settingsPage.latestVersion') || 'Already the latest version')
+      }
+    } catch {
+      setUpdateState('error')
+      setLatestTag(null)
+      setUpdateMessage(t('settingsPage.updateCheckFailed') || 'Failed to check updates')
+    } finally {
+      setIsCheckingUpdate(false)
+    }
+  }, [currentVersion, fetchLatestTag, t])
+
+  useEffect(() => {
+    void checkForUpdate()
+  }, [checkForUpdate])
+
+  const handleUpdateAction = async () => {
+    if (isCheckingUpdate) return
+    if (updateState === 'update' && latestTag) {
+      await openExternal(`${REPO_URL}/releases/tag/${latestTag}`)
+      return
+    }
+    await checkForUpdate()
+  }
+
+  return (
+    <div className="settings-page">
+      <h1 className="settings-title">{t('common.settings')}</h1>
+
+      <section className="settings-cards">
+        <div className="settings-card">
+          <div className="settings-card-icon">
+            <SunIcon size={20} />
+          </div>
+          <div className="settings-card-main">
+            <div className="settings-card-title">{t('settingsPage.themeTitle') || '应用主题'}</div>
+            <div className="settings-card-sub">{t('settingsPage.themeDesc') || '切换浅色/深色模式'}</div>
+          </div>
+          <select
+            className="settings-select"
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as ThemeValue)}
+          >
+            {themeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="settings-card">
+          <div className="settings-card-icon">
+            <GlobeIcon size={24} />
+          </div>
+          <div className="settings-card-main">
+            <div className="settings-card-title">{t('settingsPage.languageTitle') || '语言'}</div>
+            <div className="settings-card-sub">{t('settingsPage.languageDesc') || '切换软件显示语言'}</div>
+          </div>
+          <select
+            className="settings-select"
+            value={language}
+            onChange={(e) => handleLanguageChange(e.target.value as AppLanguage)}
+          >
+            {languageOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
+      <h2 className="settings-section-title">{t('common.about')}</h2>
+
+      <section className="about-panel">
+        <button className="about-head" onClick={() => setAboutExpanded((v) => !v)}>
+          <div className="about-head-icon">
+            <CogIcon size={22} />
+          </div>
+          <div className="about-head-main">
+            <div className="about-head-title">{t('common.appName')}</div>
+            <div className="about-head-sub">© 2026 | Micro-ATP | {t('common.version')}</div>
+          </div>
+          <ChevronDownIcon className={`about-chevron ${aboutExpanded ? 'open' : ''}`} size={18} />
+        </button>
+
+        {aboutExpanded ? (
+          <div className="about-rows">
+            <button className="about-row link" onClick={() => void handleUpdateAction()}>
+              <span>{updateMessage}</span>
+              {isCheckingUpdate ? (
+                <SpinnerIcon size={16} className="animate-spin" />
+              ) : updateState === 'update' ? (
+                <LinkOutIcon />
+              ) : updateState === 'error' ? (
+                <RefreshIcon size={16} />
+              ) : (
+                <CheckIcon />
+              )}
+            </button>
+
+            <button className="about-row link" onClick={() => void openExternal(REPORT_URL)}>
+              <span>{t('settingsPage.reportFeedback') || '报告错误或提交意见'}</span>
+              <LinkOutIcon />
+            </button>
+
+            <button className="about-row link" onClick={() => void openExternal(REPO_URL)}>
+              <span>{t('settingsPage.viewRepo') || '查看仓库'}</span>
+              <LinkOutIcon />
+            </button>
+
+            <button className="about-row link" onClick={() => void openExternal(DONATE_URL)}>
+              <span>{t('settingsPage.donate') || '我很可爱，请给我钱'}</span>
+              <HeartIcon color="#ef4444" />
+            </button>
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
+export default SettingsPage

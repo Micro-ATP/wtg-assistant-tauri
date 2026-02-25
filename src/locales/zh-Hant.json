@@ -312,6 +312,23 @@
       "250": "讀取錯誤重試率"
     }
   },
+  "settingsPage": {
+    "themeTitle": "應用主題",
+    "themeDesc": "切換淺色/深色模式",
+    "themeLight": "明亮",
+    "themeDark": "深色",
+    "themeSystem": "跟隨系統",
+    "languageTitle": "語言",
+    "languageDesc": "切換軟體顯示語言",
+    "latestVersion": "已是最新版本",
+    "checkingUpdate": "正在檢查更新...",
+    "updateCheckFailed": "檢查更新失敗，點擊重試",
+    "newVersionFound": "發現新版本：{{version}}",
+    "innerBuild": "當前版本高於公開版本（內測構建）",
+    "reportFeedback": "回報錯誤或提交意見",
+    "viewRepo": "查看倉庫",
+    "donate": "我很可愛，請給我錢"
+  },
   "errors": {
     "deviceNotFound": "找不到裝置",
     "permissionDenied": "權限被拒絕",

@@ -3,7 +3,7 @@
 .home-page {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2xl);
+  gap: 0;
   animation: slideIn var(--motion-duration-medium) var(--motion-easing-entrance);
 }
 
@@ -22,6 +22,7 @@
   justify-content: space-between;
   align-items: flex-end;
   min-height: 212px;
+  margin-bottom: 12px;
 }
 
 .banner-overlay {
@@ -121,6 +122,7 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: all var(--motion-duration-fast) var(--motion-easing-standard);
   animation: slideIn var(--motion-duration-medium) var(--motion-easing-entrance);
+  margin-bottom: 12px;
 }
 
 .system-info-card:hover {
@@ -196,6 +198,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: var(--spacing-xl);
+  margin-top: 2px;
   animation: slideIn var(--motion-duration-medium) var(--motion-easing-entrance);
   animation-delay: 0.1s;
   animation-fill-mode: both;
@@ -382,7 +385,7 @@
 
 @media (max-width: 480px) {
   .home-page {
-    gap: var(--spacing-xl);
+    gap: 0;
   }
 
   .home-banner {

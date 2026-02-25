@@ -228,6 +228,7 @@
       "ataIoctl": "已通过 Windows 原生 IOCTL 直接读取 ATA SMART 数据。",
       "ataDfp": "已通过传统 SMART DFP 命令通道读取 ATA SMART 数据。",
       "ataSat": "已通过 SAT 桥接回退通道（SCSI 透传）读取 ATA SMART 数据。",
+      "thresholdMissing": "设备/桥接未返回 SMART 阈值表，阈值列暂不可用。",
       "smartctlMissing": "未找到 smartctl（PATH 中不可用），安装 smartmontools 后可启用扩展 SMART 明细。",
       "smartctlEnhanced": "已通过 smartctl 增强扩展 SMART 明细。"
     },

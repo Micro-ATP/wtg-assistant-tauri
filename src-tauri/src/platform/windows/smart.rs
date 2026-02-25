@@ -121,6 +121,7 @@ struct ScsiPassThroughWithBuffers {
 
 pub struct SmartData {
     pub read_method: SmartReadMethod,
+    pub thresholds_available: bool,
     pub attributes: Vec<SmartAttribute>,
     pub temperature: Option<i32>,
     pub power_on_hours: Option<u64>,
@@ -210,23 +211,33 @@ impl DiskHandle {
         // Read SMART attributes
         let attr_data = self.send_smart_command(READ_ATTRIBUTES)?;
 
-        // Read SMART thresholds
-        let threshold_data = self.send_smart_command(READ_THRESHOLDS)?;
-        parse_ata_smart_tables(&attr_data, &threshold_data, SmartReadMethod::PhysicalDrive)
+        // Threshold table is optional on some bridges/controllers.
+        let threshold_data = self.send_smart_command(READ_THRESHOLDS).ok();
+        parse_ata_smart_tables(
+            &attr_data,
+            threshold_data.as_deref(),
+            SmartReadMethod::PhysicalDrive,
+        )
     }
 
     fn read_smart_ata_pass_through(&self) -> Result<SmartData, String> {
         // Read SMART attributes using ATA Pass Through
         let attr_data = self.send_ata_pass_through_command(SMART_CMD, READ_ATTRIBUTES)?;
-        let threshold_data = self.send_ata_pass_through_command(SMART_CMD, READ_THRESHOLDS)?;
+        let threshold_data = self
+            .send_ata_pass_through_command(SMART_CMD, READ_THRESHOLDS)
+            .ok();
 
-        parse_ata_smart_tables(&attr_data, &threshold_data, SmartReadMethod::AtaPassThrough)
+        parse_ata_smart_tables(
+            &attr_data,
+            threshold_data.as_deref(),
+            SmartReadMethod::AtaPassThrough,
+        )
     }
 
     fn read_smart_sat(&self) -> Result<SmartData, String> {
         let attr_data = self.send_sat_smart_command(READ_ATTRIBUTES)?;
-        let threshold_data = self.send_sat_smart_command(READ_THRESHOLDS)?;
-        parse_ata_smart_tables(&attr_data, &threshold_data, SmartReadMethod::SatBridge)
+        let threshold_data = self.send_sat_smart_command(READ_THRESHOLDS).ok();
+        parse_ata_smart_tables(&attr_data, threshold_data.as_deref(), SmartReadMethod::SatBridge)
     }
 
     fn send_smart_command(&self, sub_command: u8) -> Result<Vec<u8>, String> {
@@ -419,7 +430,11 @@ impl Drop for DiskHandle {
 }
 
 impl SmartData {
-    fn from_attributes(attributes: &[SmartAttribute], read_method: SmartReadMethod) -> Self {
+    fn from_attributes(
+        attributes: &[SmartAttribute],
+        read_method: SmartReadMethod,
+        thresholds_available: bool,
+    ) -> Self {
         let temperature = attributes
             .iter()
             .find(|a| a.id == 194 || a.id == 190)
@@ -444,6 +459,7 @@ impl SmartData {
 
         SmartData {
             read_method,
+            thresholds_available,
             attributes: attributes.to_vec(),
             temperature,
             power_on_hours,
@@ -458,13 +474,15 @@ impl SmartData {
 
 fn parse_ata_smart_tables(
     attr_data: &[u8],
-    threshold_data: &[u8],
+    threshold_data: Option<&[u8]>,
     method: SmartReadMethod,
 ) -> Result<SmartData, String> {
-    if attr_data.len() < 362 || threshold_data.len() < 362 {
-        return Err("SMART table payload too small".to_string());
+    if attr_data.len() < 362 {
+        return Err("SMART attribute table payload too small".to_string());
     }
 
+    let threshold_data = threshold_data.filter(|buf| buf.len() >= 362);
+    let thresholds_available = threshold_data.is_some();
     let mut attributes = Vec::new();
     for i in (2..362).step_by(12) {
         let id = attr_data[i];
@@ -485,11 +503,13 @@ fn parse_ata_smart_tables(
             0,
         ]);
 
-        let mut threshold = 0;
-        for j in (2..362).step_by(12) {
-            if threshold_data[j] == id {
-                threshold = threshold_data[j + 1];
-                break;
+        let mut threshold = 0u8;
+        if let Some(tables) = threshold_data {
+            for j in (2..362).step_by(12) {
+                if tables[j] == id {
+                    threshold = tables[j + 1];
+                    break;
+                }
             }
         }
 
@@ -506,7 +526,11 @@ fn parse_ata_smart_tables(
         return Err("SMART attributes are empty".to_string());
     }
 
-    Ok(SmartData::from_attributes(&attributes, method))
+    Ok(SmartData::from_attributes(
+        &attributes,
+        method,
+        thresholds_available,
+    ))
 }
 
 fn sat_pattern_cdb_length(pattern: SatPattern) -> u8 {

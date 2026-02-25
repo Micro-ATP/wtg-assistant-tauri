@@ -144,6 +144,7 @@ function ToolsPage() {
       'ATA SMART data read directly via Windows IOCTL (native API).': 'ataIoctl',
       'ATA SMART data read via legacy SMART DFP command path.': 'ataDfp',
       'ATA SMART data read via SAT bridge fallback (SCSI pass-through).': 'ataSat',
+      'SMART threshold table was not returned by device/bridge; threshold values are unavailable.': 'thresholdMissing',
       'smartctl not found in PATH; install smartmontools to enable extended SMART details.': 'smartctlMissing',
       'Extended SMART details were enhanced via smartctl.': 'smartctlEnhanced',
     }

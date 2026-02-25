@@ -224,6 +224,7 @@
       "ataIoctl": "ATA SMART data read directly via Windows IOCTL (native API).",
       "ataDfp": "ATA SMART data read via legacy SMART DFP command path.",
       "ataSat": "ATA SMART data read via SAT bridge fallback (SCSI pass-through).",
+      "thresholdMissing": "SMART threshold table was not returned by the device/bridge; threshold values are unavailable.",
       "smartctlMissing": "smartctl was not found in PATH; install smartmontools to enable extended SMART details.",
       "smartctlEnhanced": "Extended SMART details were enhanced via smartctl."
     },

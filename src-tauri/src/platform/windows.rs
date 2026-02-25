@@ -5,6 +5,7 @@ use crate::commands::disk::DiskInfo;
 use crate::commands::disk::SmartAttribute;
 use crate::utils::command::CommandExecutor;
 use crate::{AppError, Result};
+use regex::Regex;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 use tracing::{info, warn};
@@ -627,7 +628,11 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
                             name: get_smart_attribute_name(attr.id),
                             current: Some(attr.current as u32),
                             worst: Some(attr.worst as u32),
-                            threshold: Some(attr.threshold as u32),
+                            threshold: if smart_data.thresholds_available {
+                                Some(attr.threshold as u32)
+                            } else {
+                                None
+                            },
                             raw: Some(attr.raw),
                             raw_hex: format!("0x{:012X}", attr.raw),
                         })
@@ -654,6 +659,12 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
                         diag.smart_data_source =
                             merge_smart_source(&diag.smart_data_source, native_code);
                         add_note_unique(diag, native_note);
+                        if !smart_data.thresholds_available {
+                            add_note_unique(
+                                diag,
+                                "SMART threshold table was not returned by device/bridge; threshold values are unavailable.",
+                            );
+                        }
                     }
                     ata_ok = true;
                 }
@@ -1004,11 +1015,53 @@ struct SmartctlScanEntry {
 }
 
 fn smartctl_scan_entries() -> Option<Vec<SmartctlScanEntry>> {
-    let output = run_smartctl_allow_fail(&["--scan-open", "-j"])?;
-    let payload = extract_json_value(&output)?;
-    let devices = payload.get("devices")?.as_array()?;
+    let scan_cmds: [&[&str]; 4] = [
+        &["--scan-open", "-j"],
+        &["--scan", "-j"],
+        &["--scan-open"],
+        &["--scan"],
+    ];
 
     let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+    for args in scan_cmds {
+        let Some(output) = run_smartctl_allow_fail(args) else {
+            continue;
+        };
+
+        let parsed = if args.contains(&"-j") {
+            extract_json_value(&output)
+                .map(|payload| parse_smartctl_scan_entries_json(&payload))
+                .unwrap_or_default()
+        } else {
+            parse_smartctl_scan_entries_text(&output)
+        };
+
+        for entry in parsed {
+            let key = format!(
+                "{}\u{1F}{}",
+                entry.name.to_ascii_lowercase(),
+                entry.device_type.clone().unwrap_or_default().to_ascii_lowercase()
+            );
+            if seen.insert(key) {
+                entries.push(entry);
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
+}
+
+fn parse_smartctl_scan_entries_json(payload: &Value) -> Vec<SmartctlScanEntry> {
+    let mut entries = Vec::new();
+    let Some(devices) = payload.get("devices").and_then(Value::as_array) else {
+        return entries;
+    };
+
     for dev in devices {
         let name = dev
             .get("name")
@@ -1038,12 +1091,49 @@ fn smartctl_scan_entries() -> Option<Vec<SmartctlScanEntry>> {
             info_name,
         });
     }
+    entries
+}
 
-    if entries.is_empty() {
-        None
-    } else {
-        Some(entries)
+fn parse_smartctl_scan_entries_text(output: &str) -> Vec<SmartctlScanEntry> {
+    let mut entries = Vec::new();
+    let scan_regex =
+        Regex::new(r#"(?i)^\s*(?P<name>\S+)(?:\s+-d\s+(?P<dtype>[^\s#]+))?(?:\s+#\s*(?P<info>.*))?$"#)
+            .ok();
+
+    for raw_line in output.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if let Some(re) = scan_regex.as_ref() {
+            if let Some(caps) = re.captures(line) {
+                let name = caps
+                    .name("name")
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default();
+                if name.is_empty() || !name.starts_with('/') {
+                    continue;
+                }
+                let device_type = caps
+                    .name("dtype")
+                    .map(|m| m.as_str().trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let info_name = caps
+                    .name("info")
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default();
+
+                entries.push(SmartctlScanEntry {
+                    name,
+                    device_type,
+                    info_name,
+                });
+            }
+        }
     }
+
+    entries
 }
 
 fn smartctl_entry_matches_disk(entry: &SmartctlScanEntry, disk_number: u32) -> bool {

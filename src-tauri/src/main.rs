@@ -30,6 +30,7 @@ fn main() {
             commands::write::cancel_write,
             commands::write::verify_system_files,
             commands::benchmark::run_benchmark,
+            commands::benchmark::cancel_benchmark,
             commands::partition::list_partitions,
         ])
         .run(tauri::generate_context!())

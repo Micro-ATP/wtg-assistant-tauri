@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { benchmarkApi } from '../services/api'
 import { usePartitionList } from '../hooks/usePartitionList'
@@ -8,7 +8,27 @@ import type { BenchmarkResult as BenchResult, DiskInfo } from '../types'
 import type { PartitionInfo } from '../hooks/usePartitionList'
 import './Benchmark.css'
 
-type BenchmarkMode = 'quick' | 'multithread' | 'fullwrite' | 'full'
+type PrimaryBenchmarkMode = 'quick' | 'multithread' | 'full'
+type ExtraBenchmarkMode = 'fullwrite' | 'scenario'
+type BenchmarkMode = PrimaryBenchmarkMode | ExtraBenchmarkMode
+
+const PRIMARY_MODE_ORDER: PrimaryBenchmarkMode[] = ['quick', 'multithread', 'full']
+const EXTRA_MODE_ORDER: ExtraBenchmarkMode[] = ['fullwrite', 'scenario']
+const MODE_BASE_ESTIMATE_SECONDS: Record<Exclude<BenchmarkMode, 'fullwrite'>, number> = {
+  quick: 15,
+  multithread: 305,
+  full: 930,
+  scenario: 930,
+}
+
+const CHART = {
+  width: 860,
+  height: 340,
+  left: 64,
+  right: 20,
+  top: 18,
+  bottom: 52,
+}
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B'
@@ -18,15 +38,129 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
+function niceStep(range: number, targetTicks = 6): number {
+  if (!Number.isFinite(range) || range <= 0) return 1
+  const rough = range / targetTicks
+  const pow = Math.pow(10, Math.floor(Math.log10(rough)))
+  const lead = rough / pow
+  const unit = lead <= 1 ? 1 : lead <= 2 ? 2 : lead <= 5 ? 5 : 10
+  return unit * pow
+}
+
+function buildTicks(maxValue: number, targetTicks = 6): number[] {
+  const safeMax = Number.isFinite(maxValue) && maxValue > 0 ? maxValue : 1
+  const step = niceStep(safeMax, targetTicks)
+  const upper = Math.max(step, Math.ceil(safeMax / step) * step)
+  const ticks: number[] = []
+  for (let v = 0; v <= upper + step * 0.5; v += step) {
+    ticks.push(Number(v.toFixed(6)))
+  }
+  return ticks
+}
+
+function formatTick(v: number, compact = false): string {
+  if (!Number.isFinite(v)) return '0'
+  if (compact && Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}k`
+  if (Math.abs(v) >= 100) return `${Math.round(v)}`
+  if (Math.abs(v) >= 10) return v.toFixed(1)
+  return v.toFixed(2)
+}
+
+function formatDurationShort(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(safe / 3600)
+  const m = Math.floor((safe % 3600) / 60)
+  const s = safe % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function chartBase() {
+  return {
+    plotW: CHART.width - CHART.left - CHART.right,
+    plotH: CHART.height - CHART.top - CHART.bottom,
+  }
+}
+
+function buildThreadChart(result?: BenchResult) {
+  if (!result?.thread_results?.length) return null
+  const { plotW, plotH } = chartBase()
+  const list = [...result.thread_results].sort((a, b) => a.threads - b.threads)
+  const yTicks = buildTicks(Math.max(...list.map((d) => d.mb_s), 1), 6)
+  const yMax = yTicks[yTicks.length - 1] || 1
+  const points = list.map((d, i) => {
+    const x = CHART.left + (i / Math.max(list.length - 1, 1)) * plotW
+    const y = CHART.top + plotH - (d.mb_s / yMax) * plotH
+    return { ...d, x, y }
+  })
+  const linePath = points.map((p) => `${p.x},${p.y}`).join(' ')
+  const xTicks = points.map((p) => ({ x: p.x, label: String(p.threads) }))
+  return { points, linePath, yTicks, yMax, xTicks, plotW, plotH }
+}
+
+function buildSeqChart(samples?: { t_ms: number; value: number; x_gb: number }[]) {
+  if (!samples?.length) return null
+  const sorted = [...samples].sort((a, b) => a.x_gb - b.x_gb)
+  const { plotW, plotH } = chartBase()
+  const xTicks = buildTicks(Math.max(...sorted.map((s) => s.x_gb), 1), 6)
+  const yTicks = buildTicks(Math.max(...sorted.map((s) => s.value), 1), 6)
+  const xMax = xTicks[xTicks.length - 1] || 1
+  const yMax = yTicks[yTicks.length - 1] || 1
+  const points = sorted.map((s) => {
+    const x = CHART.left + (s.x_gb / xMax) * plotW
+    const y = CHART.top + plotH - (s.value / yMax) * plotH
+    return { ...s, x, y }
+  })
+  const linePath = points.map((p) => `${p.x},${p.y}`).join(' ')
+  const areaPath = `${linePath} ${CHART.left + plotW},${CHART.top + plotH} ${CHART.left},${CHART.top + plotH}`
+  return { points, linePath, areaPath, xTicks, yTicks, xMax, yMax, plotW, plotH }
+}
+
+function buildTrendChart(samples?: { x: number; y: number }[]) {
+  if (!samples?.length) return null
+  const sorted = [...samples].sort((a, b) => a.x - b.x)
+  const { plotW, plotH } = chartBase()
+  const xTicks = buildTicks(Math.max(...sorted.map((p) => p.x), 1), 8)
+  const yTicks = buildTicks(Math.max(...sorted.map((p) => p.y), 1), 6)
+  const xMax = xTicks[xTicks.length - 1] || 1
+  const yMax = yTicks[yTicks.length - 1] || 1
+  const points = sorted.map((p) => {
+    const x = CHART.left + (p.x / xMax) * plotW
+    const y = CHART.top + plotH - (p.y / yMax) * plotH
+    return { ...p, px: x, py: y }
+  })
+  const linePath = points.map((p) => `${p.px},${p.py}`).join(' ')
+  const areaPath = `${linePath} ${CHART.left + plotW},${CHART.top + plotH} ${CHART.left},${CHART.top + plotH}`
+  return { points, linePath, areaPath, xTicks, yTicks, xMax, yMax, plotW, plotH }
+}
+
+function isModeCompleted(mode: BenchmarkMode, result?: BenchResult): boolean {
+  if (!result) return false
+  if (mode === 'scenario') return !!(result.scenario_samples?.length || result.scenario_total_io)
+  if (mode === 'multithread') return !!(result.thread_results?.length || result.write_seq || result.write_4k)
+  if (mode === 'fullwrite') return !!(result.full_seq_samples?.length || result.write_seq)
+  return !!(result.write_seq || result.write_4k)
+}
+
 function BenchmarkPage() {
   const { t } = useTranslation()
   const { partitions, loading, error, refetch } = usePartitionList()
   const { selectedDisk, setSelectedDisk } = useAppStore()
 
   const [running, setRunning] = useState(false)
-  const [modes, setModes] = useState<BenchmarkMode[]>(['quick'])
+  const [primaryMode, setPrimaryMode] = useState<PrimaryBenchmarkMode>('quick')
+  const [extraModes, setExtraModes] = useState<Record<ExtraBenchmarkMode, boolean>>({
+    fullwrite: false,
+    scenario: false,
+  })
   const [results, setResults] = useState<Record<string, BenchResult>>({})
   const [benchError, setBenchError] = useState<string | null>(null)
+  const [currentMode, setCurrentMode] = useState<BenchmarkMode | null>(null)
+  const [currentModeStartedAt, setCurrentModeStartedAt] = useState<number | null>(null)
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
+  const [nowMs, setNowMs] = useState<number>(Date.now())
+  const [canceling, setCanceling] = useState(false)
 
   const visibleParts = useMemo(
     () => partitions.filter((p) => /^[A-Z]$/i.test((p.drive_letter || '').trim())),
@@ -41,13 +175,57 @@ function BenchmarkPage() {
     return 'Unknown'
   }
 
-  const runModesSequential = async (targetPath: string) => {
-    const seqResults: Record<string, BenchResult> = { ...results }
-    for (const m of modes) {
-      const r = await benchmarkApi.run(targetPath, m)
-      seqResults[m] = r
-      setResults({ ...seqResults })
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => setNowMs(Date.now()), 250)
+    return () => window.clearInterval(id)
+  }, [running])
+
+  const estimateModeSeconds = useCallback((mode: BenchmarkMode): number => {
+    if (mode !== 'fullwrite') return MODE_BASE_ESTIMATE_SECONDS[mode]
+    const freeBytes = Math.max(0, selectedDisk?.free || 0)
+    const media = (selectedDisk?.media_type || '').toUpperCase()
+    const assumedMbS = media.includes('HDD') || media.includes('ROTATIONAL') ? 120 : 280
+    const estimated = freeBytes / 1024 / 1024 / assumedMbS
+    return Math.max(60, Math.min(2 * 3600, Math.round(estimated)))
+  }, [selectedDisk?.free, selectedDisk?.media_type])
+
+  const selectedModes = useMemo<BenchmarkMode[]>(() => {
+    const queue: BenchmarkMode[] = [primaryMode]
+    for (const mode of EXTRA_MODE_ORDER) {
+      if (extraModes[mode]) {
+        queue.push(mode)
+      }
     }
+    return queue
+  }, [primaryMode, extraModes])
+
+  const progressInfo = useMemo(() => {
+    const totalEstimate = selectedModes.reduce((sum, mode) => sum + estimateModeSeconds(mode), 0)
+    const doneEstimate = selectedModes.reduce((sum, mode) => sum + (results[mode] ? estimateModeSeconds(mode) : 0), 0)
+    const runningEstimate = currentMode ? estimateModeSeconds(currentMode) : 0
+    const runningElapsed =
+      running && currentMode && currentModeStartedAt
+        ? Math.min((nowMs - currentModeStartedAt) / 1000, runningEstimate)
+        : 0
+    const completedRatio = totalEstimate > 0 ? (doneEstimate + runningElapsed) / totalEstimate : 0
+    const progress = Math.max(0, Math.min(100, completedRatio * 100))
+    const remaining = Math.max(0, totalEstimate - doneEstimate - runningElapsed)
+    const elapsed = runStartedAt ? (nowMs - runStartedAt) / 1000 : 0
+    return { progress, remaining, elapsed }
+  }, [selectedModes, results, currentMode, currentModeStartedAt, running, nowMs, runStartedAt, estimateModeSeconds])
+
+  const runModesSequential = async (targetPath: string) => {
+    const queue = [...selectedModes]
+    setResults({})
+    for (const m of queue) {
+      setCurrentMode(m)
+      setCurrentModeStartedAt(Date.now())
+      const r = await benchmarkApi.run(targetPath, m)
+      setResults((prev) => ({ ...prev, [m]: r }))
+    }
+    setCurrentMode(null)
+    setCurrentModeStartedAt(null)
   }
 
   const mapPartitionToDiskInfo = (partition: PartitionInfo): DiskInfo => ({
@@ -71,17 +249,42 @@ function BenchmarkPage() {
     const targetPath = `${selectedDisk.volume.replace(':', '')}:\\`
     try {
       setRunning(true)
+      setNowMs(Date.now())
+      setRunStartedAt(Date.now())
       setBenchError(null)
+      setCurrentMode(null)
+      setCurrentModeStartedAt(null)
       await runModesSequential(targetPath)
     } catch (err: unknown) {
-      setBenchError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      if (/cancel/i.test(message)) {
+        setBenchError(t('benchmark.cancelledHint') || 'Benchmark cancelled')
+      } else {
+        setBenchError(message)
+      }
     } finally {
+      setCurrentMode(null)
+      setCurrentModeStartedAt(null)
       setRunning(false)
+      setCanceling(false)
     }
   }
 
-  const latestMode = modes[modes.length - 1]
-  const latest = results[latestMode]
+  const handleCancel = async () => {
+    if (!running || canceling) return
+    try {
+      setCanceling(true)
+      await benchmarkApi.cancel()
+    } catch (err: unknown) {
+      setBenchError(err instanceof Error ? err.message : String(err))
+      setCanceling(false)
+    }
+  }
+
+  const displayedModes = useMemo(
+    () => selectedModes.filter((mode) => results[mode] || (running && currentMode === mode)),
+    [selectedModes, results, running, currentMode],
+  )
 
   return (
     <div className="benchmark-page">
@@ -124,125 +327,423 @@ function BenchmarkPage() {
 
       <section className="config-card">
         <div className="mode-selector">
-          {(['quick', 'multithread', 'fullwrite', 'full'] as const).map((m) => (
-            <label key={m}>
-              <input
-                type="checkbox"
-                checked={modes.includes(m)}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setModes([...modes, m])
-                  } else {
-                    const next = modes.filter((x) => x !== m)
-                    setModes(next.length ? next : ['quick'])
+          <div className="mode-group">
+            <div className="mode-group-label">{t('benchmark.primaryModes') || '主测试（三选一）'}</div>
+            {PRIMARY_MODE_ORDER.map((m) => (
+              <label key={m}>
+                <input
+                  type="radio"
+                  name="benchmark-primary-mode"
+                  checked={primaryMode === m}
+                  disabled={running}
+                  onChange={() => setPrimaryMode(m)}
+                />
+                {t(`benchmark.${m}`) || m}
+              </label>
+            ))}
+          </div>
+          <div className="mode-group">
+            <div className="mode-group-label">{t('benchmark.extraModes') || '附加测试（可叠加）'}</div>
+            {EXTRA_MODE_ORDER.map((m) => (
+              <label key={m}>
+                <input
+                  type="checkbox"
+                  checked={extraModes[m]}
+                  disabled={running}
+                  onChange={(e) =>
+                    setExtraModes((prev) => ({
+                      ...prev,
+                      [m]: e.target.checked,
+                    }))
                   }
-                }}
-              />
-              {t(`benchmark.${m}`) || m}
-            </label>
-          ))}
+                />
+                {t(`benchmark.${m}`) || m}
+              </label>
+            ))}
+          </div>
         </div>
         <div className="bench-actions">
           <div>
             <div className="label">{t('configure.selectDisk')}</div>
             <div className="value">{selectedDisk ? `${selectedDisk.volume}:\\` : '--'}</div>
           </div>
-          <button className="btn-primary" onClick={handleStart} disabled={running || !selectedDisk || !selectedDisk.volume}>
-            {running ? t('messages.loading') : t('benchmark.start')}
-          </button>
+          <div className="bench-buttons">
+            <button className="btn-primary" onClick={handleStart} disabled={running || !selectedDisk || !selectedDisk.volume}>
+              {running ? t('benchmark.running') || t('messages.loading') : t('benchmark.start')}
+            </button>
+            {running ? (
+              <button className="btn-cancel-bench" onClick={handleCancel} disabled={canceling}>
+                {canceling ? t('messages.loading') : t('benchmark.cancel') || 'Cancel'}
+              </button>
+            ) : null}
+          </div>
         </div>
+        {running ? (
+          <div className="bench-progress-wrap">
+            <div className="bench-progress-head">
+              <span>{t('benchmark.progress') || 'Progress'}</span>
+              <span>{progressInfo.progress.toFixed(0)}%</span>
+            </div>
+            <div className="bench-progress-track">
+              <div className="bench-progress-fill" style={{ width: `${progressInfo.progress}%` }} />
+            </div>
+            <div className="bench-progress-meta">
+              <span>
+                {(t('benchmark.elapsed') || 'Elapsed')}: {formatDurationShort(progressInfo.elapsed)}
+              </span>
+              <span>
+                {(t('benchmark.remaining') || 'Estimated remaining')}: {formatDurationShort(progressInfo.remaining)}
+              </span>
+            </div>
+          </div>
+        ) : null}
         {benchError && <div className="error-msg">{benchError}</div>}
 
-        {latest && (
-          <div className="results-grid">
-            <div className="result-card">
-              <div className="label">{t('benchmark.sequential') || 'Sequential Write'}</div>
-              <div className="value highlight">{latest.write_seq.toFixed(1)} MB/s</div>
-            </div>
-            <div className="result-card">
-              <div className="label">{t('benchmark.random4K') || '4K Random Write'}</div>
-              <div className="value highlight">{latest.write_4k.toFixed(1)} MB/s</div>
-            </div>
-            <div className="result-card muted">
-              <div className="label">{t('benchmark.duration') || 'Duration'}</div>
-              <div className="value">{(latest.duration_ms / 1000).toFixed(1)} s</div>
-            </div>
-            <div className="result-card muted">
-              <div className="label">{t('benchmark.written') || 'Written data'}</div>
-              <div className="value">{latest.full_written_gb.toFixed(1)} GB</div>
-            </div>
-          </div>
-        )}
-
-        {latest?.thread_results?.length ? (
-          <div className="thread-chart">
-            <div className="chart-header">{t('benchmark.threads') || '4K scaling by threads'}</div>
-            <svg viewBox="0 0 400 220" preserveAspectRatio="none">
-              <line x1="40" y1="10" x2="40" y2="200" stroke="#ccc" strokeWidth="1" />
-              <line x1="40" y1="200" x2="390" y2="200" stroke="#ccc" strokeWidth="1" />
-              <text x="12" y="16" fontSize="10" fill="#666" transform="rotate(-90 12 16)">MB/s</text>
-              <text x="200" y="214" fontSize="10" fill="#666">{t('benchmark.threads') || 'Threads'}</text>
-              {latest.thread_results.map((tr, idx) => {
-                const max = Math.max(...latest.thread_results.map((p) => p.mb_s), 1)
-                const x = 40 + (idx / Math.max(latest.thread_results.length - 1, 1)) * 350
-                const y = 200 - (tr.mb_s / max) * 180
-                return (
-                  <g key={tr.threads}>
-                    <circle cx={x} cy={y} r={4} fill="#0078d4" />
-                    <text x={x} y={y - 8} fontSize="10" textAnchor="middle" fill="#333">{tr.mb_s.toFixed(0)}</text>
-                    <text x={x} y={214} fontSize="10" textAnchor="middle" fill="#666">{tr.threads}</text>
-                  </g>
-                )
-              })}
-              <polyline
-                fill="none"
-                stroke="#0078d4"
-                strokeWidth="2"
-                points={latest.thread_results.map((tr, idx) => {
-                  const max = Math.max(...latest.thread_results.map((p) => p.mb_s), 1)
-                  const x = 40 + (idx / Math.max(latest.thread_results.length - 1, 1)) * 350
-                  const y = 200 - (tr.mb_s / max) * 180
-                  return `${x},${y}`
-                }).join(' ')}
-              />
-            </svg>
-          </div>
+        {displayedModes.length === 0 && !running ? (
+          <div className="empty-state">{t('benchmark.realtimeHint') || 'Select mode(s) and start benchmark.'}</div>
         ) : null}
 
-        {latest?.full_seq_samples?.length ? (
-          <div className="seq-chart">
-            <div className="chart-header">{t('benchmark.seqTrend') || 'Sequential speed over time'}</div>
-            <svg viewBox="0 0 400 220" preserveAspectRatio="none">
-              <line x1="40" y1="10" x2="40" y2="200" stroke="#ccc" strokeWidth="1" />
-              <line x1="40" y1="200" x2="390" y2="200" stroke="#ccc" strokeWidth="1" />
-              <text x="12" y="16" fontSize="10" fill="#666" transform="rotate(-90 12 16)">MB/s</text>
-              <text x="200" y="214" fontSize="10" fill="#666">{t('benchmark.written') || 'Written (GB)'}</text>
-              {(() => {
-                const samples = latest.full_seq_samples
-                const max = Math.max(...samples.map((s) => s.value), 1)
-                const maxX = Math.max(...samples.map((s) => s.x_gb), 1)
-                return (
-                  <polyline
-                    fill="none"
-                    stroke="#00b4d8"
-                    strokeWidth="2"
-                    points={samples.map((s) => {
-                      const x = 40 + (s.x_gb / maxX) * 350
-                      const y = 200 - (s.value / max) * 180
-                      return `${x},${y}`
-                    }).join(' ')}
-                  />
-                )
-              })()}
-            </svg>
-          </div>
-        ) : null}
+        {displayedModes.map((mode) => {
+          const result = results[mode]
+          const done = isModeCompleted(mode, result)
+          const isRunningMode = running && currentMode === mode && !done
+          const threadChart = buildThreadChart(result)
+          const seqChart = buildSeqChart(result?.full_seq_samples)
+          const random4kChart = buildTrendChart(result?.write_4k_samples)
+          const scenarioChart = buildTrendChart(result?.scenario_samples)
+          const threadGradId = `threadLineGrad-${mode}`
+          const seqAreaId = `seqAreaGrad-${mode}`
+          const r4kAreaId = `r4kAreaGrad-${mode}`
+          const sceAreaId = `sceAreaGrad-${mode}`
+
+          return (
+            <div className="mode-result-section" key={mode}>
+              <div className="mode-result-header">
+                <h3>{t(`benchmark.${mode}`) || mode}</h3>
+                <span className={`mode-badge ${isRunningMode ? 'running' : done ? 'done' : 'pending'}`}>
+                  {isRunningMode ? t('benchmark.running') || 'Running' : done ? t('benchmark.completed') || 'Completed' : '--'}
+                </span>
+              </div>
+
+              {!result ? (
+                <div className="mode-pending">
+                  <SpinnerIcon size={18} />
+                  <span>{t('messages.loading') || 'Loading...'}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="results-grid">
+                    {result.write_seq > 0 ? (
+                      <div className="result-card">
+                        <div className="label">{t('benchmark.sequential') || 'Sequential Write'}</div>
+                        <div className="value highlight">{result.write_seq.toFixed(1)} MB/s</div>
+                      </div>
+                    ) : null}
+
+                    {result.write_4k > 0 ? (
+                      <div className="result-card">
+                        <div className="label">{t('benchmark.random4K') || '4K Random Write'}</div>
+                        <div className="value highlight">{result.write_4k.toFixed(1)} MB/s</div>
+                      </div>
+                    ) : null}
+
+                    {typeof result.write_4k_raw === 'number' ? (
+                      <div className="result-card muted">
+                        <div className="label">{t('benchmark.raw4k') || '4K Raw'}</div>
+                        <div className="value">{result.write_4k_raw.toFixed(1)} MB/s</div>
+                      </div>
+                    ) : null}
+
+                    {typeof result.write_4k_adjusted === 'number' ? (
+                      <div className="result-card muted">
+                        <div className="label">{t('benchmark.adjusted4k') || '4K Adjusted'}</div>
+                        <div className="value">{result.write_4k_adjusted.toFixed(1)} MB/s</div>
+                      </div>
+                    ) : null}
+
+                    {typeof result.score === 'number' ? (
+                      <div className="result-card">
+                        <div className="label">{t('benchmark.score') || 'Score'}</div>
+                        <div className="value">{result.score.toFixed(1)}</div>
+                      </div>
+                    ) : null}
+
+                    {result.grade ? (
+                      <div className="result-card">
+                        <div className="label">{t('benchmark.grade') || 'Grade'}</div>
+                        <div className="value">{result.grade}</div>
+                      </div>
+                    ) : null}
+
+                    {typeof result.scenario_score === 'number' ? (
+                      <div className="result-card">
+                        <div className="label">{t('benchmark.scenarioScore') || 'Scenario Score'}</div>
+                        <div className="value">{result.scenario_score.toFixed(1)}</div>
+                      </div>
+                    ) : null}
+
+                    {typeof result.scenario_total_io === 'number' ? (
+                      <div className="result-card muted">
+                        <div className="label">{t('benchmark.scenarioTotalIo') || 'Scenario Total IO'}</div>
+                        <div className="value">{Math.round(result.scenario_total_io)}</div>
+                      </div>
+                    ) : null}
+
+                    <div className="result-card muted">
+                      <div className="label">{t('benchmark.duration') || 'Duration'}</div>
+                      <div className="value">{(result.duration_ms / 1000).toFixed(1)} s</div>
+                    </div>
+
+                    <div className="result-card muted">
+                      <div className="label">{t('benchmark.written') || 'Written data'}</div>
+                      <div className="value">{result.full_written_gb.toFixed(1)} GB</div>
+                    </div>
+                  </div>
+
+                  {random4kChart ? (
+                    <div className="chart-panel">
+                      <div className="chart-header">{t('benchmark.random4kTrend') || '4K random write trend'}</div>
+                      <svg viewBox={`0 0 ${CHART.width} ${CHART.height}`}>
+                        <defs>
+                          <linearGradient id={r4kAreaId} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#2b7fff" stopOpacity="0.35" />
+                            <stop offset="100%" stopColor="#2b7fff" stopOpacity="0.06" />
+                          </linearGradient>
+                        </defs>
+
+                        {random4kChart.yTicks.map((tick) => {
+                          const y = CHART.top + random4kChart.plotH - (tick / random4kChart.yMax) * random4kChart.plotH
+                          return (
+                            <g key={`r4k-y-${mode}-${tick}`}>
+                              <line x1={CHART.left} y1={y} x2={CHART.left + random4kChart.plotW} y2={y} className="chart-grid" />
+                              <text x={CHART.left - 8} y={y + 4} className="axis-text y-axis">{formatTick(tick, true)}</text>
+                            </g>
+                          )
+                        })}
+
+                        {random4kChart.xTicks.map((tick) => {
+                          const x = CHART.left + (tick / random4kChart.xMax) * random4kChart.plotW
+                          return (
+                            <g key={`r4k-x-${mode}-${tick}`}>
+                              <line x1={x} y1={CHART.top} x2={x} y2={CHART.top + random4kChart.plotH} className="chart-grid chart-grid-v" />
+                              <text x={x} y={CHART.top + random4kChart.plotH + 18} className="axis-text" textAnchor="middle">
+                                {formatTick(tick)}
+                              </text>
+                            </g>
+                          )
+                        })}
+
+                        <line x1={CHART.left} y1={CHART.top + random4kChart.plotH} x2={CHART.left + random4kChart.plotW} y2={CHART.top + random4kChart.plotH} className="chart-axis" />
+                        <line x1={CHART.left} y1={CHART.top} x2={CHART.left} y2={CHART.top + random4kChart.plotH} className="chart-axis" />
+
+                        <polygon points={random4kChart.areaPath} fill={`url(#${r4kAreaId})`} />
+                        <polyline fill="none" stroke="#2b7fff" strokeWidth="2.5" points={random4kChart.linePath} />
+
+                        {random4kChart.points.map((p, idx) => (
+                          <circle key={`r4k-p-${mode}-${idx}`} cx={p.px} cy={p.py} r={2.8} className="chart-point" />
+                        ))}
+
+                        <text x={CHART.left + random4kChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">
+                          {t('benchmark.seconds') || 'Seconds'}
+                        </text>
+                        <text
+                          x={16}
+                          y={CHART.top + random4kChart.plotH / 2}
+                          className="axis-title"
+                          textAnchor="middle"
+                          transform={`rotate(-90 16 ${CHART.top + random4kChart.plotH / 2})`}
+                        >
+                          MB/s
+                        </text>
+                      </svg>
+                    </div>
+                  ) : null}
+
+                  {threadChart ? (
+                    <div className="chart-panel">
+                      <div className="chart-header">{t('benchmark.threads') || '4K scaling by threads'}</div>
+                      <svg viewBox={`0 0 ${CHART.width} ${CHART.height}`}>
+                        <defs>
+                          <linearGradient id={threadGradId} x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor="#2b7fff" />
+                            <stop offset="100%" stopColor="#00b4d8" />
+                          </linearGradient>
+                        </defs>
+
+                        {threadChart.yTicks.map((tick) => {
+                          const y = CHART.top + threadChart.plotH - (tick / threadChart.yMax) * threadChart.plotH
+                          return (
+                            <g key={`mt-y-${mode}-${tick}`}>
+                              <line x1={CHART.left} y1={y} x2={CHART.left + threadChart.plotW} y2={y} className="chart-grid" />
+                              <text x={CHART.left - 8} y={y + 4} className="axis-text y-axis">{formatTick(tick, true)}</text>
+                            </g>
+                          )
+                        })}
+
+                        {threadChart.xTicks.map((tick) => (
+                          <g key={`mt-x-${mode}-${tick.label}`}>
+                            <line x1={tick.x} y1={CHART.top} x2={tick.x} y2={CHART.top + threadChart.plotH} className="chart-grid chart-grid-v" />
+                            <text x={tick.x} y={CHART.top + threadChart.plotH + 18} className="axis-text" textAnchor="middle">
+                              {tick.label}
+                            </text>
+                          </g>
+                        ))}
+
+                        <line x1={CHART.left} y1={CHART.top + threadChart.plotH} x2={CHART.left + threadChart.plotW} y2={CHART.top + threadChart.plotH} className="chart-axis" />
+                        <line x1={CHART.left} y1={CHART.top} x2={CHART.left} y2={CHART.top + threadChart.plotH} className="chart-axis" />
+
+                        <polyline fill="none" stroke={`url(#${threadGradId})`} strokeWidth="2.5" points={threadChart.linePath} />
+
+                        {threadChart.points.map((p) => (
+                          <g key={`mt-p-${mode}-${p.threads}`}>
+                            <circle cx={p.x} cy={p.y} r={4} className="chart-point" />
+                            <text x={p.x} y={p.y - 8} className="axis-text" textAnchor="middle">{p.mb_s.toFixed(1)}</text>
+                          </g>
+                        ))}
+
+                        <text x={CHART.left + threadChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">
+                          {t('benchmark.threads') || 'Threads'}
+                        </text>
+                        <text
+                          x={16}
+                          y={CHART.top + threadChart.plotH / 2}
+                          className="axis-title"
+                          textAnchor="middle"
+                          transform={`rotate(-90 16 ${CHART.top + threadChart.plotH / 2})`}
+                        >
+                          MB/s
+                        </text>
+                      </svg>
+                    </div>
+                  ) : null}
+
+                  {seqChart ? (
+                    <div className="chart-panel">
+                      <div className="chart-header">{t('benchmark.seqTrend') || 'Sequential speed over written data'}</div>
+                      <svg viewBox={`0 0 ${CHART.width} ${CHART.height}`}>
+                        <defs>
+                          <linearGradient id={seqAreaId} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#00b4d8" stopOpacity="0.35" />
+                            <stop offset="100%" stopColor="#00b4d8" stopOpacity="0.05" />
+                          </linearGradient>
+                        </defs>
+
+                        {seqChart.yTicks.map((tick) => {
+                          const y = CHART.top + seqChart.plotH - (tick / seqChart.yMax) * seqChart.plotH
+                          return (
+                            <g key={`seq-y-${mode}-${tick}`}>
+                              <line x1={CHART.left} y1={y} x2={CHART.left + seqChart.plotW} y2={y} className="chart-grid" />
+                              <text x={CHART.left - 8} y={y + 4} className="axis-text y-axis">{formatTick(tick, true)}</text>
+                            </g>
+                          )
+                        })}
+
+                        {seqChart.xTicks.map((tick) => {
+                          const x = CHART.left + (tick / seqChart.xMax) * seqChart.plotW
+                          return (
+                            <g key={`seq-x-${mode}-${tick}`}>
+                              <line x1={x} y1={CHART.top} x2={x} y2={CHART.top + seqChart.plotH} className="chart-grid chart-grid-v" />
+                              <text x={x} y={CHART.top + seqChart.plotH + 18} className="axis-text" textAnchor="middle">
+                                {formatTick(tick)}
+                              </text>
+                            </g>
+                          )
+                        })}
+
+                        <line x1={CHART.left} y1={CHART.top + seqChart.plotH} x2={CHART.left + seqChart.plotW} y2={CHART.top + seqChart.plotH} className="chart-axis" />
+                        <line x1={CHART.left} y1={CHART.top} x2={CHART.left} y2={CHART.top + seqChart.plotH} className="chart-axis" />
+
+                        <polygon points={seqChart.areaPath} fill={`url(#${seqAreaId})`} />
+                        <polyline fill="none" stroke="#00b4d8" strokeWidth="2.5" points={seqChart.linePath} />
+
+                        {seqChart.points
+                          .filter((_, idx) => idx % Math.max(Math.floor(seqChart.points.length / 20), 1) === 0)
+                          .map((p, idx) => (
+                            <circle key={`seq-p-${mode}-${idx}`} cx={p.x} cy={p.y} r={2.8} className="chart-point chart-point-alt" />
+                          ))}
+
+                        <text x={CHART.left + seqChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">
+                          {t('benchmark.written') || 'Written (GB)'}
+                        </text>
+                        <text
+                          x={16}
+                          y={CHART.top + seqChart.plotH / 2}
+                          className="axis-title"
+                          textAnchor="middle"
+                          transform={`rotate(-90 16 ${CHART.top + seqChart.plotH / 2})`}
+                        >
+                          MB/s
+                        </text>
+                      </svg>
+                    </div>
+                  ) : null}
+
+                  {scenarioChart ? (
+                    <div className="chart-panel">
+                      <div className="chart-header">{t('benchmark.scenarioTrend') || 'Scenario workload trend'}</div>
+                      <svg viewBox={`0 0 ${CHART.width} ${CHART.height}`}>
+                        <defs>
+                          <linearGradient id={sceAreaId} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.33" />
+                            <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.05" />
+                          </linearGradient>
+                        </defs>
+
+                        {scenarioChart.yTicks.map((tick) => {
+                          const y = CHART.top + scenarioChart.plotH - (tick / scenarioChart.yMax) * scenarioChart.plotH
+                          return (
+                            <g key={`sce-y-${mode}-${tick}`}>
+                              <line x1={CHART.left} y1={y} x2={CHART.left + scenarioChart.plotW} y2={y} className="chart-grid" />
+                              <text x={CHART.left - 8} y={y + 4} className="axis-text y-axis">{formatTick(tick, true)}</text>
+                            </g>
+                          )
+                        })}
+
+                        {scenarioChart.xTicks.map((tick) => {
+                          const x = CHART.left + (tick / scenarioChart.xMax) * scenarioChart.plotW
+                          return (
+                            <g key={`sce-x-${mode}-${tick}`}>
+                              <line x1={x} y1={CHART.top} x2={x} y2={CHART.top + scenarioChart.plotH} className="chart-grid chart-grid-v" />
+                              <text x={x} y={CHART.top + scenarioChart.plotH + 18} className="axis-text" textAnchor="middle">
+                                {formatTick(tick)}
+                              </text>
+                            </g>
+                          )
+                        })}
+
+                        <line x1={CHART.left} y1={CHART.top + scenarioChart.plotH} x2={CHART.left + scenarioChart.plotW} y2={CHART.top + scenarioChart.plotH} className="chart-axis" />
+                        <line x1={CHART.left} y1={CHART.top} x2={CHART.left} y2={CHART.top + scenarioChart.plotH} className="chart-axis" />
+
+                        <polygon points={scenarioChart.areaPath} fill={`url(#${sceAreaId})`} />
+                        <polyline fill="none" stroke="#f59e0b" strokeWidth="2.5" points={scenarioChart.linePath} />
+
+                        {scenarioChart.points.map((p, idx) => (
+                          <circle key={`sce-p-${mode}-${idx}`} cx={p.px} cy={p.py} r={2.8} className="chart-point chart-point-warm" />
+                        ))}
+
+                        <text x={CHART.left + scenarioChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">
+                          {t('benchmark.seconds') || 'Seconds'}
+                        </text>
+                        <text
+                          x={16}
+                          y={CHART.top + scenarioChart.plotH / 2}
+                          className="axis-title"
+                          textAnchor="middle"
+                          transform={`rotate(-90 16 ${CHART.top + scenarioChart.plotH / 2})`}
+                        >
+                          {t('benchmark.opsPerSecond') || 'Ops/s'}
+                        </text>
+                      </svg>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          )
+        })}
       </section>
-
     </div>
   )
 }
 
 export default BenchmarkPage
-
-

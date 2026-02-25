@@ -16,7 +16,7 @@ export interface DiskInfo {
   removable: boolean
   device: string
   drive_type?: string
-   media_type?: string
+  media_type?: string
   index?: string
   volume?: string
   free?: number
@@ -125,10 +125,18 @@ export interface SystemInfo {
 export interface BenchmarkResult {
   write_seq: number
   write_4k: number
+  write_4k_raw?: number
+  write_4k_adjusted?: number
+  write_4k_samples: { x: number; y: number }[]
   duration_ms: number
   mode: string
   thread_results: { threads: number; mb_s: number }[]
   full_seq_samples: { t_ms: number; value: number; x_gb: number }[]
+  scenario_samples: { x: number; y: number }[]
+  scenario_total_io?: number
+  scenario_score?: number
+  score?: number
+  grade?: string
   full_written_gb: number
 }
 

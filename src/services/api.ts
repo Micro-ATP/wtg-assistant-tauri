@@ -144,13 +144,21 @@ export const writeApi = {
 export const benchmarkApi = {
   run: async (
     targetPath: string,
-    mode: 'quick' | 'multithread' | 'fullwrite' | 'full' = 'quick',
+    mode: 'quick' | 'multithread' | 'fullwrite' | 'full' | 'scenario' = 'quick',
   ): Promise<BenchmarkResult> => {
     try {
       const result = await invoke<BenchmarkResult>('run_benchmark', { targetPath, mode })
       return result
     } catch (error) {
       console.error('Failed to run benchmark:', error)
+      throw error
+    }
+  },
+  cancel: async (): Promise<void> => {
+    try {
+      await invoke('cancel_benchmark')
+    } catch (error) {
+      console.error('Failed to cancel benchmark:', error)
       throw error
     }
   },

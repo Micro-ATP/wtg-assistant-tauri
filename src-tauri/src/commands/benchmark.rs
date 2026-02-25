@@ -11,3 +11,9 @@ pub async fn run_benchmark(target_path: String, mode: Option<String>) -> Result<
     };
     benchmark::run_benchmark(&config).await
 }
+
+#[tauri::command]
+pub fn cancel_benchmark() -> Result<()> {
+    benchmark::request_cancel();
+    Ok(())
+}

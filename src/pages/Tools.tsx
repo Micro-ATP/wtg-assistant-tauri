@@ -130,6 +130,27 @@ function ToolsPage() {
       .join(' + ')
   }
 
+  const localizeNote = (note: string): string => {
+    const map: Record<string, string> = {
+      'Using ATA SMART attributes and Storage Reliability counters.': 'ataAndReliability',
+      'Using ATA SMART attribute table.': 'ataOnly',
+      'ATA SMART attribute table unavailable; using Storage Reliability counters.': 'reliabilityOnly',
+      'SMART/reliability counters unavailable for this device path (common with some USB bridges/RAID drivers).': 'noSmartCounters',
+      'Serial number appears masked by controller/driver; another identifier may be required for exact model matching.': 'serialMasked',
+      'No usable serial number returned by current Windows APIs for this device.': 'serialMissing',
+      'Some counters were derived from ATA SMART attributes because Storage Reliability counters were incomplete.': 'derivedFromAta',
+      'USB bridge may block pass-through SMART commands on this enclosure.': 'usbBridgeBlocked',
+      'NVMe SMART data read directly via Windows Storage Query API.': 'nvmeIoctl',
+      'ATA SMART data read directly via Windows IOCTL (native API).': 'ataIoctl',
+      'ATA SMART data read via legacy SMART DFP command path.': 'ataDfp',
+      'ATA SMART data read via SAT bridge fallback (SCSI pass-through).': 'ataSat',
+      'smartctl not found in PATH; install smartmontools to enable extended SMART details.': 'smartctlMissing',
+      'Extended SMART details were enhanced via smartctl.': 'smartctlEnhanced',
+    }
+    const mapped = map[note]
+    return mapped ? t(`tools.note.${mapped}`) : note
+  }
+
   const reliabilityRows = useMemo(() => {
     if (!selectedDiag?.reliability || typeof selectedDiag.reliability !== 'object') return []
     return Object.entries(selectedDiag.reliability).filter(([, value]) => value !== null && value !== undefined)
@@ -353,7 +374,7 @@ function ToolsPage() {
                 {selectedDiag.notes?.length ? (
                   <div className="notes-box">
                     {selectedDiag.notes.map((note) => (
-                      <p key={note}>{note}</p>
+                      <p key={note}>{localizeNote(note)}</p>
                     ))}
                   </div>
                 ) : null}

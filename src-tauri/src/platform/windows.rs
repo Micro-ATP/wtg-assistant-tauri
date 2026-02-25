@@ -637,12 +637,23 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
                         diag.smart_attributes = attrs;
                         diag.ata_smart_available = true;
                         diag.smart_supported = true;
+                        let (native_code, native_note) = match smart_data.read_method {
+                            smart::SmartReadMethod::AtaPassThrough => (
+                                "ATA_NATIVE_IOCTL",
+                                "ATA SMART data read directly via Windows IOCTL (native API).",
+                            ),
+                            smart::SmartReadMethod::PhysicalDrive => (
+                                "ATA_NATIVE_DFP",
+                                "ATA SMART data read via legacy SMART DFP command path.",
+                            ),
+                            smart::SmartReadMethod::SatBridge => (
+                                "ATA_NATIVE_SAT",
+                                "ATA SMART data read via SAT bridge fallback (SCSI pass-through).",
+                            ),
+                        };
                         diag.smart_data_source =
-                            merge_smart_source(&diag.smart_data_source, "ATA_NATIVE_IOCTL");
-                        add_note_unique(
-                            diag,
-                            "ATA SMART data read directly via Windows IOCTL (native API).",
-                        );
+                            merge_smart_source(&diag.smart_data_source, native_code);
+                        add_note_unique(diag, native_note);
                     }
                     ata_ok = true;
                 }
@@ -982,7 +993,7 @@ fn enrich_with_smartctl(diagnostics: &mut [DiskDiagnostics]) {
 }
 
 fn smartctl_installed() -> bool {
-    CommandExecutor::execute_allow_fail("smartctl", &["--version"]).is_ok()
+    run_smartctl_allow_fail(&["--version"]).is_some()
 }
 
 #[derive(Debug, Clone)]
@@ -993,7 +1004,7 @@ struct SmartctlScanEntry {
 }
 
 fn smartctl_scan_entries() -> Option<Vec<SmartctlScanEntry>> {
-    let output = CommandExecutor::execute_allow_fail("smartctl", &["--scan-open", "-j"]).ok()?;
+    let output = run_smartctl_allow_fail(&["--scan-open", "-j"])?;
     let payload = extract_json_value(&output)?;
     let devices = payload.get("devices")?.as_array()?;
 
@@ -1145,6 +1156,7 @@ fn get_smartctl_payload_for_disk(
         || diag.bus_type.eq_ignore_ascii_case("nvme");
 
     if diag.is_usb {
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat,auto"));
         push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat"));
         push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat,12"));
         push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat,16"));
@@ -1156,10 +1168,17 @@ fn get_smartctl_payload_for_disk(
         if diag.is_usb {
             // CrystalDiskInfo has dedicated NVMe-over-USB paths for JMicron/ASMedia/Realtek.
             push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron"));
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron,0"));
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron,1"));
             push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntasmedia"));
             push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek"));
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek,0"));
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek,1"));
         }
     } else {
+        if diag.is_usb {
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbjmicron"));
+        }
         push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat"));
         push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("scsi"));
     }
@@ -1171,6 +1190,8 @@ fn get_smartctl_payload_for_disk(
             "152D" => {
                 push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbjmicron"));
                 push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron"));
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron,0"));
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron,1"));
             }
             // ASMedia
             "174C" => {
@@ -1179,6 +1200,8 @@ fn get_smartctl_payload_for_disk(
             // Realtek
             "0BDA" => {
                 push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek"));
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek,0"));
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek,1"));
             }
             // Cypress / Prolific / Sunplus
             "04B4" => push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbcypress")),
@@ -1231,8 +1254,48 @@ fn get_smartctl_payload_for_disk(
 
 fn run_smartctl_json(args: &[String]) -> Option<Value> {
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = CommandExecutor::execute_allow_fail("smartctl", &arg_refs).ok()?;
+    let output = run_smartctl_allow_fail(&arg_refs)?;
     extract_json_value(&output)
+}
+
+fn run_smartctl_allow_fail(args: &[&str]) -> Option<String> {
+    for cmd in smartctl_candidates() {
+        if let Ok(output) = CommandExecutor::execute_allow_fail(&cmd, args) {
+            return Some(output);
+        }
+    }
+    None
+}
+
+fn smartctl_candidates() -> Vec<String> {
+    let mut candidates = vec![
+        "smartctl".to_string(),
+        "smartctl.exe".to_string(),
+        r"C:\Program Files\smartmontools\bin\smartctl.exe".to_string(),
+        r"C:\Program Files (x86)\smartmontools\bin\smartctl.exe".to_string(),
+    ];
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            push_candidate_path(&mut candidates, dir.join("smartctl.exe"));
+            push_candidate_path(&mut candidates, dir.join("smartmontools").join("bin").join("smartctl.exe"));
+            push_candidate_path(&mut candidates, dir.join("resources").join("smartctl").join("smartctl.exe"));
+            push_candidate_path(
+                &mut candidates,
+                dir.join("..").join("resources").join("smartctl").join("smartctl.exe"),
+            );
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|s| seen.insert(s.to_ascii_lowercase()))
+        .collect()
+}
+
+fn push_candidate_path(candidates: &mut Vec<String>, path: std::path::PathBuf) {
+    candidates.push(path.to_string_lossy().to_string());
 }
 
 fn extract_json_value(output: &str) -> Option<Value> {

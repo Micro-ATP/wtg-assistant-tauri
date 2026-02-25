@@ -24,12 +24,14 @@ const READ_THRESHOLDS: u8 = 0xD1;
 // IOCTL codes
 const DFP_RECEIVE_DRIVE_DATA: u32 = 0x0007C088;
 const IOCTL_ATA_PASS_THROUGH: u32 = 0x0004D02C;
+const IOCTL_SCSI_PASS_THROUGH: u32 = 0x0004D004;
 
 // ATA Pass Through flags
 const ATA_FLAGS_DRDY_REQUIRED: u16 = 0x01;
 const ATA_FLAGS_DATA_IN: u16 = 0x02;
 const GENERIC_READ: u32 = 0x8000_0000;
 const GENERIC_WRITE: u32 = 0x4000_0000;
+const SCSI_IOCTL_DATA_IN: u8 = 1;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -92,7 +94,33 @@ struct AtaPassThroughExWithBuffers {
     buf: [u8; 512],
 }
 
+#[repr(C)]
+struct ScsiPassThrough {
+    length: u16,
+    scsi_status: u8,
+    path_id: u8,
+    target_id: u8,
+    lun: u8,
+    cdb_length: u8,
+    sense_info_length: u8,
+    data_in: u8,
+    data_transfer_length: u32,
+    time_out_value: u32,
+    data_buffer_offset: u32,
+    sense_info_offset: u32,
+    cdb: [u8; 16],
+}
+
+#[repr(C)]
+struct ScsiPassThroughWithBuffers {
+    spt: ScsiPassThrough,
+    filler: u32,
+    sense_buf: [u8; 32],
+    data_buf: [u8; 512],
+}
+
 pub struct SmartData {
+    pub read_method: SmartReadMethod,
     pub attributes: Vec<SmartAttribute>,
     pub temperature: Option<i32>,
     pub power_on_hours: Option<u64>,
@@ -108,8 +136,27 @@ pub struct SmartAttribute {
     pub raw: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SmartReadMethod {
+    AtaPassThrough,
+    PhysicalDrive,
+    SatBridge,
+}
+
 pub struct DiskHandle {
     handle: HANDLE,
+}
+
+#[derive(Clone, Copy)]
+enum SatPattern {
+    Ata12(u8),
+    Ata16(u8),
+    Sunplus,
+    IoData,
+    Logitec,
+    Prolific,
+    JMicron,
+    Cypress,
 }
 
 impl DiskHandle {
@@ -151,108 +198,35 @@ impl DiskHandle {
             return Ok(data);
         }
 
+        // SAT over SCSI bridge fallback (common for USB-SATA enclosures)
+        if let Ok(data) = self.read_smart_sat() {
+            return Ok(data);
+        }
+
         Err("Failed to read SMART data using any method".to_string())
     }
 
     fn read_smart_physical_drive(&self) -> Result<SmartData, String> {
-        let mut attributes = Vec::new();
-
         // Read SMART attributes
         let attr_data = self.send_smart_command(READ_ATTRIBUTES)?;
 
         // Read SMART thresholds
         let threshold_data = self.send_smart_command(READ_THRESHOLDS)?;
-
-        // Parse attributes (starting at offset 2, 12 bytes per attribute)
-        for i in (2..362).step_by(12) {
-            let id = attr_data[i];
-            if id == 0 {
-                continue;
-            }
-
-            let current = attr_data[i + 3];
-            let worst = attr_data[i + 4];
-
-            // Raw value is 6 bytes little-endian
-            let raw = u64::from_le_bytes([
-                attr_data[i + 5],
-                attr_data[i + 6],
-                attr_data[i + 7],
-                attr_data[i + 8],
-                attr_data[i + 9],
-                attr_data[i + 10],
-                0,
-                0,
-            ]);
-
-            // Find matching threshold
-            let mut threshold = 0;
-            for j in (2..362).step_by(12) {
-                if threshold_data[j] == id {
-                    threshold = threshold_data[j + 1];
-                    break;
-                }
-            }
-
-            attributes.push(SmartAttribute {
-                id,
-                current,
-                worst,
-                threshold,
-                raw,
-            });
-        }
-
-        let smart_data = SmartData::from_attributes(&attributes);
-        Ok(smart_data)
+        parse_ata_smart_tables(&attr_data, &threshold_data, SmartReadMethod::PhysicalDrive)
     }
 
     fn read_smart_ata_pass_through(&self) -> Result<SmartData, String> {
-        let mut attributes = Vec::new();
-
         // Read SMART attributes using ATA Pass Through
         let attr_data = self.send_ata_pass_through_command(SMART_CMD, READ_ATTRIBUTES)?;
         let threshold_data = self.send_ata_pass_through_command(SMART_CMD, READ_THRESHOLDS)?;
 
-        // Parse attributes
-        for i in (2..362).step_by(12) {
-            let id = attr_data[i];
-            if id == 0 {
-                continue;
-            }
+        parse_ata_smart_tables(&attr_data, &threshold_data, SmartReadMethod::AtaPassThrough)
+    }
 
-            let current = attr_data[i + 3];
-            let worst = attr_data[i + 4];
-            let raw = u64::from_le_bytes([
-                attr_data[i + 5],
-                attr_data[i + 6],
-                attr_data[i + 7],
-                attr_data[i + 8],
-                attr_data[i + 9],
-                attr_data[i + 10],
-                0,
-                0,
-            ]);
-
-            let mut threshold = 0;
-            for j in (2..362).step_by(12) {
-                if threshold_data[j] == id {
-                    threshold = threshold_data[j + 1];
-                    break;
-                }
-            }
-
-            attributes.push(SmartAttribute {
-                id,
-                current,
-                worst,
-                threshold,
-                raw,
-            });
-        }
-
-        let smart_data = SmartData::from_attributes(&attributes);
-        Ok(smart_data)
+    fn read_smart_sat(&self) -> Result<SmartData, String> {
+        let attr_data = self.send_sat_smart_command(READ_ATTRIBUTES)?;
+        let threshold_data = self.send_sat_smart_command(READ_THRESHOLDS)?;
+        parse_ata_smart_tables(&attr_data, &threshold_data, SmartReadMethod::SatBridge)
     }
 
     fn send_smart_command(&self, sub_command: u8) -> Result<Vec<u8>, String> {
@@ -348,6 +322,92 @@ impl DiskHandle {
             Ok(apt_buf.buf.to_vec())
         }
     }
+
+    fn send_sat_smart_command(&self, sub_command: u8) -> Result<Vec<u8>, String> {
+        // CrystalDiskInfo style fallback attempts for bridge variations.
+        let attempts = [
+            SatPattern::Ata12(0x2E),
+            SatPattern::Ata16(0x2E),
+            SatPattern::Ata12(0x0E),
+            SatPattern::Ata16(0x0E),
+            SatPattern::JMicron,
+            SatPattern::Sunplus,
+            SatPattern::IoData,
+            SatPattern::Logitec,
+            SatPattern::Prolific,
+            SatPattern::Cypress,
+        ];
+        let mut last_err = String::new();
+
+        for pattern in attempts {
+            match self.send_sat_smart_command_once(sub_command, pattern) {
+                Ok(data) if data.iter().any(|b| *b != 0) => return Ok(data),
+                Ok(_) => {
+                    last_err = "SAT returned empty buffer".to_string();
+                }
+                Err(e) => {
+                    last_err = e;
+                }
+            }
+        }
+
+        if last_err.is_empty() {
+            Err("SAT SMART command failed".to_string())
+        } else {
+            Err(last_err)
+        }
+    }
+
+    fn send_sat_smart_command_once(
+        &self,
+        sub_command: u8,
+        pattern: SatPattern,
+    ) -> Result<Vec<u8>, String> {
+        unsafe {
+            let cdb_length = sat_pattern_cdb_length(pattern);
+            let mut sptwb = ScsiPassThroughWithBuffers {
+                spt: ScsiPassThrough {
+                    length: mem::size_of::<ScsiPassThrough>() as u16,
+                    scsi_status: 0,
+                    path_id: 0,
+                    target_id: 0,
+                    lun: 0,
+                    cdb_length,
+                    sense_info_length: 32,
+                    data_in: SCSI_IOCTL_DATA_IN,
+                    data_transfer_length: 512,
+                    time_out_value: 4,
+                    data_buffer_offset: (mem::size_of::<ScsiPassThrough>() + 4 + 32) as u32,
+                    sense_info_offset: (mem::size_of::<ScsiPassThrough>() + 4) as u32,
+                    cdb: [0; 16],
+                },
+                filler: 0,
+                sense_buf: [0; 32],
+                data_buf: [0; 512],
+            };
+
+            build_sat_cdb(&mut sptwb.spt.cdb, sub_command, pattern);
+
+            let mut bytes_returned = 0_u32;
+            let size = mem::size_of::<ScsiPassThroughWithBuffers>() as u32;
+            let result = DeviceIoControl(
+                self.handle,
+                IOCTL_SCSI_PASS_THROUGH,
+                Some(&sptwb as *const _ as *const _),
+                size,
+                Some(&mut sptwb as *mut _ as *mut _),
+                size,
+                Some(&mut bytes_returned),
+                None,
+            );
+
+            if result.is_err() {
+                return Err("SCSI/SAT pass-through failed".to_string());
+            }
+
+            Ok(sptwb.data_buf.to_vec())
+        }
+    }
 }
 
 impl Drop for DiskHandle {
@@ -359,7 +419,7 @@ impl Drop for DiskHandle {
 }
 
 impl SmartData {
-    fn from_attributes(attributes: &[SmartAttribute]) -> Self {
+    fn from_attributes(attributes: &[SmartAttribute], read_method: SmartReadMethod) -> Self {
         let temperature = attributes
             .iter()
             .find(|a| a.id == 194 || a.id == 190)
@@ -383,6 +443,7 @@ impl SmartData {
             .map(|a| a.raw);
 
         SmartData {
+            read_method,
             attributes: attributes.to_vec(),
             temperature,
             power_on_hours,
@@ -392,6 +453,162 @@ impl SmartData {
 
     pub fn get_attribute(&self, id: u8) -> Option<&SmartAttribute> {
         self.attributes.iter().find(|a| a.id == id)
+    }
+}
+
+fn parse_ata_smart_tables(
+    attr_data: &[u8],
+    threshold_data: &[u8],
+    method: SmartReadMethod,
+) -> Result<SmartData, String> {
+    if attr_data.len() < 362 || threshold_data.len() < 362 {
+        return Err("SMART table payload too small".to_string());
+    }
+
+    let mut attributes = Vec::new();
+    for i in (2..362).step_by(12) {
+        let id = attr_data[i];
+        if id == 0 {
+            continue;
+        }
+
+        let current = attr_data[i + 3];
+        let worst = attr_data[i + 4];
+        let raw = u64::from_le_bytes([
+            attr_data[i + 5],
+            attr_data[i + 6],
+            attr_data[i + 7],
+            attr_data[i + 8],
+            attr_data[i + 9],
+            attr_data[i + 10],
+            0,
+            0,
+        ]);
+
+        let mut threshold = 0;
+        for j in (2..362).step_by(12) {
+            if threshold_data[j] == id {
+                threshold = threshold_data[j + 1];
+                break;
+            }
+        }
+
+        attributes.push(SmartAttribute {
+            id,
+            current,
+            worst,
+            threshold,
+            raw,
+        });
+    }
+
+    if attributes.is_empty() {
+        return Err("SMART attributes are empty".to_string());
+    }
+
+    Ok(SmartData::from_attributes(&attributes, method))
+}
+
+fn sat_pattern_cdb_length(pattern: SatPattern) -> u8 {
+    match pattern {
+        SatPattern::Ata16(_) | SatPattern::Prolific | SatPattern::Cypress => 16,
+        SatPattern::Logitec => 10,
+        _ => 12,
+    }
+}
+
+fn build_sat_cdb(cdb: &mut [u8; 16], sub_command: u8, pattern: SatPattern) {
+    let target = 0xA0_u8;
+
+    match pattern {
+        SatPattern::Ata12(flags) => {
+            cdb[0] = 0xA1;
+            cdb[1] = 0x08;
+            cdb[2] = flags;
+            cdb[3] = sub_command;
+            cdb[4] = 0x01;
+            cdb[5] = 0x01;
+            cdb[6] = 0x4F;
+            cdb[7] = 0xC2;
+            cdb[8] = target;
+            cdb[9] = SMART_CMD;
+        }
+        SatPattern::Ata16(flags) => {
+            cdb[0] = 0x85;
+            cdb[1] = 0x08;
+            cdb[2] = flags;
+            cdb[4] = sub_command;
+            cdb[6] = 0x01;
+            cdb[10] = 0x4F;
+            cdb[12] = 0xC2;
+            cdb[13] = target;
+            cdb[14] = SMART_CMD;
+        }
+        SatPattern::Sunplus => {
+            cdb[0] = 0xF8;
+            cdb[2] = 0x22;
+            cdb[3] = 0x10;
+            cdb[4] = 0x01;
+            cdb[5] = sub_command;
+            cdb[6] = 0x01;
+            cdb[8] = 0x4F;
+            cdb[9] = 0xC2;
+            cdb[10] = target;
+            cdb[11] = SMART_CMD;
+        }
+        SatPattern::IoData => {
+            cdb[0] = 0xE3;
+            cdb[2] = sub_command;
+            cdb[5] = 0x4F;
+            cdb[6] = 0xC2;
+            cdb[7] = target;
+            cdb[8] = SMART_CMD;
+        }
+        SatPattern::Logitec => {
+            cdb[0] = 0xE0;
+            cdb[2] = sub_command;
+            cdb[5] = 0x4F;
+            cdb[6] = 0xC2;
+            cdb[7] = target;
+            cdb[8] = SMART_CMD;
+            cdb[9] = 0x4C;
+        }
+        SatPattern::Prolific => {
+            cdb[0] = 0xD8;
+            cdb[1] = 0x15;
+            cdb[3] = sub_command;
+            cdb[4] = 0x06;
+            cdb[5] = 0x7B;
+            cdb[8] = 0x02;
+            cdb[10] = 0x01;
+            cdb[12] = 0x4F;
+            cdb[13] = 0xC2;
+            cdb[14] = target;
+            cdb[15] = SMART_CMD;
+        }
+        SatPattern::JMicron => {
+            cdb[0] = 0xDF;
+            cdb[1] = 0x10;
+            cdb[3] = 0x02;
+            cdb[5] = sub_command;
+            cdb[6] = 0x01;
+            cdb[7] = 0x01;
+            cdb[8] = 0x4F;
+            cdb[9] = 0xC2;
+            cdb[10] = target;
+            cdb[11] = SMART_CMD;
+        }
+        SatPattern::Cypress => {
+            cdb[0] = 0x24;
+            cdb[1] = 0x24;
+            cdb[3] = 0xBE;
+            cdb[4] = 0x01;
+            cdb[6] = sub_command;
+            cdb[9] = 0x4F;
+            cdb[10] = 0xC2;
+            cdb[11] = target;
+            cdb[12] = SMART_CMD;
+        }
     }
 }
 

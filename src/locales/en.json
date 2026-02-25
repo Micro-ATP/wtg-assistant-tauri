@@ -206,8 +206,26 @@
       "STORAGE_RELIABILITY": "Storage Reliability Counters",
       "NVME_NATIVE_IOCTL": "Native NVMe IOCTL",
       "ATA_NATIVE_IOCTL": "Native ATA IOCTL",
+      "ATA_NATIVE_DFP": "Legacy ATA DFP path",
+      "ATA_NATIVE_SAT": "ATA SAT bridge path",
       "SMARTCTL_ATA": "smartctl ATA",
       "SMARTCTL_NVME": "smartctl NVMe"
+    },
+    "note": {
+      "ataAndReliability": "Using ATA SMART attributes and storage reliability counters.",
+      "ataOnly": "Using ATA SMART attribute table.",
+      "reliabilityOnly": "ATA SMART attribute table unavailable; using storage reliability counters.",
+      "noSmartCounters": "SMART/reliability counters unavailable for this device path (common with some USB bridges/RAID drivers).",
+      "serialMasked": "Serial number appears masked by controller/driver; another identifier may be required for exact model matching.",
+      "serialMissing": "No usable serial number returned by current Windows APIs for this device.",
+      "derivedFromAta": "Some counters were derived from ATA SMART attributes because storage reliability counters were incomplete.",
+      "usbBridgeBlocked": "USB bridge may block pass-through SMART commands on this enclosure.",
+      "nvmeIoctl": "NVMe SMART data read directly via Windows Storage Query API.",
+      "ataIoctl": "ATA SMART data read directly via Windows IOCTL (native API).",
+      "ataDfp": "ATA SMART data read via legacy SMART DFP command path.",
+      "ataSat": "ATA SMART data read via SAT bridge fallback (SCSI pass-through).",
+      "smartctlMissing": "smartctl was not found in PATH; install smartmontools to enable extended SMART details.",
+      "smartctlEnhanced": "Extended SMART details were enhanced via smartctl."
     },
     "smartAttrName": {
       "1": "Read Error Rate",

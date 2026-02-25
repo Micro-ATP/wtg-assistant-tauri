@@ -210,8 +210,26 @@
       "STORAGE_RELIABILITY": "儲存可靠性計數器",
       "NVME_NATIVE_IOCTL": "NVMe 原生 IOCTL",
       "ATA_NATIVE_IOCTL": "ATA 原生 IOCTL",
+      "ATA_NATIVE_DFP": "ATA DFP 舊通道",
+      "ATA_NATIVE_SAT": "ATA SAT 橋接通道",
       "SMARTCTL_ATA": "smartctl ATA",
       "SMARTCTL_NVME": "smartctl NVMe"
+    },
+    "note": {
+      "ataAndReliability": "同時使用 ATA SMART 屬性與儲存可靠性計數器。",
+      "ataOnly": "使用 ATA SMART 屬性表。",
+      "reliabilityOnly": "ATA SMART 屬性表不可用，已改用儲存可靠性計數器。",
+      "noSmartCounters": "目前裝置路徑未回傳 SMART/可靠性計數器（部分 USB 橋接或 RAID 驅動常見）。",
+      "serialMasked": "序號可能被控制器/驅動遮罩，可能需要其他識別資訊以精確比對型號。",
+      "serialMissing": "目前 Windows API 未回傳可用序號。",
+      "derivedFromAta": "因儲存可靠性計數器不完整，部分計數由 ATA SMART 屬性推導。",
+      "usbBridgeBlocked": "此 USB 橋接盒可能阻擋 SMART 直通命令。",
+      "nvmeIoctl": "已透過 Windows Storage Query API 直接讀取 NVMe SMART 資料。",
+      "ataIoctl": "已透過 Windows 原生 IOCTL 直接讀取 ATA SMART 資料。",
+      "ataDfp": "已透過傳統 SMART DFP 命令通道讀取 ATA SMART 資料。",
+      "ataSat": "已透過 SAT 橋接回退通道（SCSI 直通）讀取 ATA SMART 資料。",
+      "smartctlMissing": "找不到 smartctl（PATH 中不可用），安裝 smartmontools 後可啟用擴展 SMART 明細。",
+      "smartctlEnhanced": "已透過 smartctl 增強擴展 SMART 明細。"
     },
     "smartAttrName": {
       "1": "讀取錯誤率",

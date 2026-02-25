@@ -6,6 +6,7 @@
     "configure": "配置",
     "write": "写入",
     "benchmark": "基准测试",
+    "tools": "小工具",
     "settings": "设置",
     "help": "帮助",
     "about": "关于"
@@ -115,6 +116,17 @@
     "multithread": "多线程模式（约6分钟）",
     "fullwrite": "全盘写入模式",
     "full": "极限模式（约15分钟）"
+  },
+  "tools": {
+    "title": "小工具",
+    "subtitle": "实用工具集合",
+    "diskInfo": "磁盘信息查看",
+    "diskInfoDesc": "显示当前所选磁盘的容量与介质类型。",
+    "pathTest": "路径写入测试",
+    "pathTestDesc": "快速验证目标路径是否具备写入权限。",
+    "capacityCalc": "容量换算",
+    "capacityCalcDesc": "在 GB / GiB 单位之间进行容量换算。",
+    "hint": "该板块为扩展区，后续会持续新增实用工具。"
   },
   "errors": {
     "deviceNotFound": "设备未找到",

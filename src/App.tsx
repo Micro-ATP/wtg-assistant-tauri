@@ -6,6 +6,7 @@ import HomePage from './pages/Home'
 import ConfigurePage from './pages/Configure'
 import WritePage from './pages/Write'
 import BenchmarkPage from './pages/Benchmark'
+import ToolsPage from './pages/Tools'
 import { useAppStore } from './services/store'
 import type { SystemInfo } from './types'
 import './App.css'
@@ -37,6 +38,8 @@ function App() {
         return <WritePage />
       case 'benchmark':
         return <BenchmarkPage />
+      case 'tools':
+        return <ToolsPage />
       default:
         return <HomePage />
     }

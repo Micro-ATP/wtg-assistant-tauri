@@ -2,6 +2,7 @@
   "name": "wtg-tauri",
   "private": true,
   "version": "0.0.1",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "Windows To Go Assistant - Tauri + React + Rust",
   "packageManager": "pnpm@9.0.0",

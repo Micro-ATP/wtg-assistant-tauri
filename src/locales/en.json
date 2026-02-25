@@ -6,6 +6,7 @@
     "configure": "Configure",
     "write": "Write",
     "benchmark": "Benchmark",
+    "tools": "Tools",
     "settings": "Settings",
     "help": "Help",
     "about": "About"
@@ -111,6 +112,17 @@
     "multithread": "Multi-thread (6 mins)",
     "fullwrite": "Full-disk write",
     "full": "Full endurance (15 mins)"
+  },
+  "tools": {
+    "title": "Tools",
+    "subtitle": "Utility Toolbox",
+    "diskInfo": "Disk Info Viewer",
+    "diskInfoDesc": "Show capacity and media type for the currently selected disk.",
+    "pathTest": "Path Write Test",
+    "pathTestDesc": "Quickly verify write permission for the target path.",
+    "capacityCalc": "Capacity Converter",
+    "capacityCalcDesc": "Convert capacity values between GB and GiB.",
+    "hint": "This section is reserved for utilities and will be expanded with more tools."
   },
   "errors": {
     "deviceNotFound": "Device not found",

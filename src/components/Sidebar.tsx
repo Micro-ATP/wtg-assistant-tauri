@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
 import { useTheme } from '../hooks/useTheme'
-import { HomeIcon, SettingsIcon, WriteIcon, BenchmarkIcon, MenuIcon, CloseIcon, SunIcon, MoonIcon } from './Icons'
+import { HomeIcon, SettingsIcon, WriteIcon, BenchmarkIcon, ToolsIcon, MenuIcon, CloseIcon, SunIcon, MoonIcon } from './Icons'
 import './Sidebar.css'
 
 type AppLanguage = 'en' | 'zh-Hans' | 'zh-Hant'
@@ -23,6 +23,7 @@ function Sidebar() {
     { id: 'configure', label: t('common.configure'), icon: SettingsIcon },
     { id: 'write', label: t('common.write'), icon: WriteIcon },
     { id: 'benchmark', label: t('common.benchmark'), icon: BenchmarkIcon },
+    { id: 'tools', label: t('common.tools'), icon: ToolsIcon },
   ]
 
   const handleLanguageChange = (lang: AppLanguage) => {

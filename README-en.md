@@ -204,7 +204,7 @@ Contributions are welcome! Please:
 
 ## 📄 License
 
-[Check LICENSE file](./old_arch/wintogo/LICENSE)
+[Check LICENSE file](./LICENSE)
 
 ## 🙏 Acknowledgments
 

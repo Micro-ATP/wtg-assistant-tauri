@@ -41,6 +41,13 @@ export const BenchmarkIcon: React.FC<IconProps> = ({ size = 24, color = 'current
   </svg>
 )
 
+// Tools Icon
+export const ToolsIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
+    <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-3-3 2.1-2.1z" />
+  </svg>
+)
+
 // Menu Icon
 export const MenuIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>

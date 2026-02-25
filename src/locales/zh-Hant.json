@@ -6,6 +6,7 @@
     "configure": "配置",
     "write": "寫入",
     "benchmark": "基準測試",
+    "tools": "小工具",
     "settings": "設定",
     "help": "說明",
     "about": "關於"
@@ -115,6 +116,17 @@
     "multithread": "多執行緒模式（約6分鐘）",
     "fullwrite": "全碟寫入模式",
     "full": "極限模式（約15分鐘）"
+  },
+  "tools": {
+    "title": "小工具",
+    "subtitle": "實用工具集合",
+    "diskInfo": "磁碟資訊檢視",
+    "diskInfoDesc": "顯示目前所選磁碟的容量與媒體類型。",
+    "pathTest": "路徑寫入測試",
+    "pathTestDesc": "快速驗證目標路徑是否具備寫入權限。",
+    "capacityCalc": "容量換算",
+    "capacityCalcDesc": "在 GB / GiB 單位之間進行容量換算。",
+    "hint": "此區塊為擴展區，後續會持續新增實用工具。"
   },
   "errors": {
     "deviceNotFound": "找不到裝置",

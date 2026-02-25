@@ -204,7 +204,7 @@ npm run tauri:build
 
 ## 📄 许可证
 
-[检查 LICENSE 文件](./old_arch/wintogo/LICENSE)
+[检查 LICENSE 文件](./LICENSE)
 
 ## 🙏 致谢
 

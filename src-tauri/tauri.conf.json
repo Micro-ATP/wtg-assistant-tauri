@@ -12,9 +12,9 @@
     "windows": [
       {
         "title": "Windows To Go Assistant",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 800,
+        "width": 1360,
+        "height": 860,
+        "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,

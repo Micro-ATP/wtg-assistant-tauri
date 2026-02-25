@@ -54,6 +54,12 @@ pub struct DiskDiagnostics {
     #[serde(default)]
     pub interface_type: String,
     #[serde(default)]
+    pub pnp_device_id: String,
+    #[serde(default)]
+    pub usb_vendor_id: String,
+    #[serde(default)]
+    pub usb_product_id: String,
+    #[serde(default)]
     pub transport_type: String,
     #[serde(default)]
     pub is_usb: bool,

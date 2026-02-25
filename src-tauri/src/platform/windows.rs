@@ -1,7 +1,10 @@
-use crate::commands::disk::DiskInfo;
 use crate::commands::disk::DiskDiagnostics;
+use crate::commands::disk::DiskInfo;
+use crate::commands::disk::SmartAttribute;
 use crate::utils::command::CommandExecutor;
 use crate::{AppError, Result};
+use serde_json::{Map, Value};
+use std::collections::HashSet;
 use tracing::info;
 
 /// PowerShell script to get disk info with volume letters.
@@ -322,6 +325,10 @@ foreach ($d in $disks) {
     $firmware = if ($wd) { Normalize-Text $wd.FirmwareRevision } else { '' }
     $busTypeName = Get-BusTypeName $d.BusType
     $pnp = if ($wd) { Normalize-Text $wd.PNPDeviceID } else { '' }
+    $usbVid = ''
+    $usbPid = ''
+    if ($pnp -match 'VID_([0-9A-Fa-f]{4})') { $usbVid = $Matches[1].ToUpper() }
+    if ($pnp -match 'PID_([0-9A-Fa-f]{4})') { $usbPid = $Matches[1].ToUpper() }
     $interfaceType = if ($wd) { Normalize-Text $wd.InterfaceType } else { '' }
     $isUsb = Is-UsbDevice $busTypeName $interfaceType $pnp
     $transport = switch -Regex ($busTypeName) {
@@ -467,6 +474,9 @@ foreach ($d in $disks) {
         serial_number = $serial
         firmware_version = $firmware
         interface_type = $iface
+        pnp_device_id = $pnp
+        usb_vendor_id = $usbVid
+        usb_product_id = $usbPid
         transport_type = $transport
         is_usb = [bool]$isUsb
         bus_type = $busTypeName
@@ -515,18 +525,23 @@ pub async fn list_disks() -> Result<Vec<DiskInfo>> {
     let json_str = match json_start {
         Some(pos) => &trimmed[pos..],
         None => {
-            info!("No JSON found in PowerShell output: {}", &trimmed[..trimmed.len().min(200)]);
+            info!(
+                "No JSON found in PowerShell output: {}",
+                &trimmed[..trimmed.len().min(200)]
+            );
             return Ok(vec![]);
         }
     };
 
     let disks: Vec<DiskInfo> = if json_str.starts_with('[') {
-        let raw: Vec<serde_json::Value> = serde_json::from_str(json_str)
-            .map_err(|e| AppError::JsonError(format!("{}: {}", e, &json_str[..json_str.len().min(300)])))?;
+        let raw: Vec<serde_json::Value> = serde_json::from_str(json_str).map_err(|e| {
+            AppError::JsonError(format!("{}: {}", e, &json_str[..json_str.len().min(300)]))
+        })?;
         raw.iter().map(|d| parse_disk(d)).collect()
     } else {
-        let raw: serde_json::Value = serde_json::from_str(json_str)
-            .map_err(|e| AppError::JsonError(format!("{}: {}", e, &json_str[..json_str.len().min(300)])))?;
+        let raw: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+            AppError::JsonError(format!("{}: {}", e, &json_str[..json_str.len().min(300)]))
+        })?;
         vec![parse_disk(&raw)]
     };
 
@@ -558,25 +573,791 @@ pub async fn list_disk_diagnostics() -> Result<Vec<DiskDiagnostics>> {
         }
     };
 
-    let diagnostics: Vec<DiskDiagnostics> = if json_str.starts_with('[') {
+    let mut diagnostics: Vec<DiskDiagnostics> = if json_str.starts_with('[') {
         serde_json::from_str(json_str).map_err(|e| {
-            AppError::JsonError(format!(
-                "{}: {}",
-                e,
-                &json_str[..json_str.len().min(600)]
-            ))
+            AppError::JsonError(format!("{}: {}", e, &json_str[..json_str.len().min(600)]))
         })?
     } else {
         vec![serde_json::from_str(json_str).map_err(|e| {
-            AppError::JsonError(format!(
-                "{}: {}",
-                e,
-                &json_str[..json_str.len().min(600)]
-            ))
+            AppError::JsonError(format!("{}: {}", e, &json_str[..json_str.len().min(600)]))
         })?]
     };
 
+    enrich_with_smartctl(&mut diagnostics);
     Ok(diagnostics)
+}
+
+fn enrich_with_smartctl(diagnostics: &mut [DiskDiagnostics]) {
+    if diagnostics.is_empty() {
+        return;
+    }
+
+    if !smartctl_installed() {
+        for diag in diagnostics.iter_mut() {
+            add_note_unique(
+                diag,
+                "smartctl not found in PATH; install smartmontools to enable extended SMART details.",
+            );
+        }
+        return;
+    }
+
+    let scan_entries = smartctl_scan_entries();
+    for diag in diagnostics.iter_mut() {
+        if let Some(payload) = get_smartctl_payload_for_disk(diag, scan_entries.as_deref()) {
+            apply_smartctl_payload(diag, &payload);
+            add_note_unique(diag, "Extended SMART details were enhanced via smartctl.");
+        }
+    }
+}
+
+fn smartctl_installed() -> bool {
+    CommandExecutor::execute_allow_fail("smartctl", &["--version"]).is_ok()
+}
+
+#[derive(Debug, Clone)]
+struct SmartctlScanEntry {
+    name: String,
+    device_type: Option<String>,
+    info_name: String,
+}
+
+fn smartctl_scan_entries() -> Option<Vec<SmartctlScanEntry>> {
+    let output = CommandExecutor::execute_allow_fail("smartctl", &["--scan-open", "-j"]).ok()?;
+    let payload = extract_json_value(&output)?;
+    let devices = payload.get("devices")?.as_array()?;
+
+    let mut entries = Vec::new();
+    for dev in devices {
+        let name = dev
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let info_name = dev
+            .get("info_name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let device_type = dev
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned);
+
+        entries.push(SmartctlScanEntry {
+            name,
+            device_type,
+            info_name,
+        });
+    }
+
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
+}
+
+fn smartctl_entry_matches_disk(entry: &SmartctlScanEntry, disk_number: u32) -> bool {
+    let key_pd = format!("pd{}", disk_number).to_ascii_lowercase();
+    let key_phy = format!("physicaldrive{}", disk_number).to_ascii_lowercase();
+    let key_disk = format!("disk{}", disk_number).to_ascii_lowercase();
+    let name = entry.name.to_ascii_lowercase();
+    let info = entry.info_name.to_ascii_lowercase();
+
+    [name, info]
+        .iter()
+        .any(|v| v.contains(&key_pd) || v.contains(&key_phy) || v.contains(&key_disk))
+}
+
+fn push_smartctl_attempt(
+    attempts: &mut Vec<Vec<String>>,
+    seen: &mut HashSet<String>,
+    device: &str,
+    device_type: Option<&str>,
+) {
+    let mut args = vec!["-x".to_string(), "-j".to_string()];
+    if let Some(dt) = device_type.map(str::trim).filter(|dt| !dt.is_empty()) {
+        args.push("-d".to_string());
+        args.push(dt.to_string());
+    }
+    args.push(device.to_string());
+
+    let key = args.join("\u{1F}");
+    if seen.insert(key) {
+        attempts.push(args);
+    }
+}
+
+fn normalized_eq(a: &str, b: &str) -> bool {
+    let na: String = a
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    let nb: String = b
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    !na.is_empty() && !nb.is_empty() && na == nb
+}
+
+fn payload_matches_diag(payload: &Value, diag: &DiskDiagnostics) -> bool {
+    let pd_name = format!("/dev/pd{}", diag.disk_number).to_ascii_lowercase();
+    if get_string_path(payload, &["device", "name"])
+        .map(|n| n.to_ascii_lowercase().contains(&pd_name))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let payload_serial = get_string_path(payload, &["serial_number"]).unwrap_or_default();
+    let diag_serial = diag.serial_number.trim();
+    if !diag_serial.is_empty()
+        && !is_masked_serial(diag_serial)
+        && !payload_serial.is_empty()
+        && normalized_eq(diag_serial, &payload_serial)
+    {
+        return true;
+    }
+
+    let payload_model = get_string_path(payload, &["model_name"]).unwrap_or_default();
+    let diag_model = if diag.model.trim().is_empty() {
+        diag.friendly_name.trim()
+    } else {
+        diag.model.trim()
+    };
+    let model_like = !payload_model.is_empty()
+        && !diag_model.is_empty()
+        && (payload_model
+            .to_ascii_uppercase()
+            .contains(&diag_model.to_ascii_uppercase())
+            || diag_model
+                .to_ascii_uppercase()
+                .contains(&payload_model.to_ascii_uppercase()));
+
+    if model_like {
+        if let Some(cap) = get_u64_path(payload, &["user_capacity", "bytes"]) {
+            let size = diag.size_bytes;
+            if size > 0 {
+                let diff = cap.abs_diff(size);
+                let tolerance = (size / 20).max(64 * 1024 * 1024);
+                if diff <= tolerance {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+fn get_smartctl_payload_for_disk(
+    diag: &DiskDiagnostics,
+    scan_entries: Option<&[SmartctlScanEntry]>,
+) -> Option<Value> {
+    let device = format!("/dev/pd{}", diag.disk_number);
+    let mut attempts: Vec<Vec<String>> = Vec::new();
+    let mut seen = HashSet::new();
+
+    push_smartctl_attempt(&mut attempts, &mut seen, &device, None);
+
+    let is_nvme = diag.transport_type.eq_ignore_ascii_case("nvme")
+        || diag.interface_type.eq_ignore_ascii_case("nvmexpress")
+        || diag.bus_type.eq_ignore_ascii_case("nvme");
+
+    if diag.is_usb {
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat"));
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat,12"));
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat,16"));
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("scsi"));
+    }
+
+    if is_nvme {
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("nvme"));
+        if diag.is_usb {
+            // CrystalDiskInfo has dedicated NVMe-over-USB paths for JMicron/ASMedia/Realtek.
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron"));
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntasmedia"));
+            push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek"));
+        }
+    } else {
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sat"));
+        push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("scsi"));
+    }
+
+    let usb_vid = diag.usb_vendor_id.trim().to_ascii_uppercase();
+    if !usb_vid.is_empty() {
+        match usb_vid.as_str() {
+            // JMicron
+            "152D" => {
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbjmicron"));
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntjmicron"));
+            }
+            // ASMedia
+            "174C" => {
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntasmedia"));
+            }
+            // Realtek
+            "0BDA" => {
+                push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("sntrealtek"));
+            }
+            // Cypress / Prolific / Sunplus
+            "04B4" => push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbcypress")),
+            "067B" => push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbprolific")),
+            "04FC" => push_smartctl_attempt(&mut attempts, &mut seen, &device, Some("usbsunplus")),
+            _ => {}
+        }
+    }
+
+    if let Some(entries) = scan_entries {
+        for entry in entries.iter().filter(|e| smartctl_entry_matches_disk(e, diag.disk_number)) {
+            push_smartctl_attempt(
+                &mut attempts,
+                &mut seen,
+                &entry.name,
+                entry.device_type.as_deref(),
+            );
+        }
+    }
+
+    for args in attempts {
+        if let Some(payload) = run_smartctl_json(&args) {
+            if is_useful_smartctl_payload(&payload) {
+                return Some(payload);
+            }
+        }
+    }
+
+    if let Some(entries) = scan_entries {
+        // Fallback: probe scanned entries and match by serial/model/size
+        for entry in entries {
+            let mut fallback = vec!["-x".to_string(), "-j".to_string()];
+            if let Some(dt) = entry.device_type.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            {
+                fallback.push("-d".to_string());
+                fallback.push(dt.to_string());
+            }
+            fallback.push(entry.name.clone());
+
+            if let Some(payload) = run_smartctl_json(&fallback) {
+                if is_useful_smartctl_payload(&payload) && payload_matches_diag(&payload, diag) {
+                    return Some(payload);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn run_smartctl_json(args: &[String]) -> Option<Value> {
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = CommandExecutor::execute_allow_fail("smartctl", &arg_refs).ok()?;
+    extract_json_value(&output)
+}
+
+fn extract_json_value(output: &str) -> Option<Value> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let start = trimmed.find('{').or_else(|| trimmed.find('['))?;
+    serde_json::from_str(&trimmed[start..]).ok()
+}
+
+fn is_useful_smartctl_payload(payload: &Value) -> bool {
+    payload.get("smartctl").is_some()
+        && (payload.get("model_name").is_some()
+            || payload.get("serial_number").is_some()
+            || payload.pointer("/ata_smart_attributes/table").is_some()
+            || payload.get("nvme_smart_health_information_log").is_some()
+            || payload.pointer("/temperature/current").is_some()
+            || payload.pointer("/power_on_time/hours").is_some())
+}
+
+fn apply_smartctl_payload(diag: &mut DiskDiagnostics, payload: &Value) {
+    if let Some(model) = get_string_path(payload, &["model_name"]).filter(|s| !s.is_empty()) {
+        if diag.model.trim().is_empty() {
+            diag.model = model;
+        }
+    }
+
+    if let Some(firmware) =
+        get_string_path(payload, &["firmware_version"]).filter(|s| !s.is_empty())
+    {
+        if diag.firmware_version.trim().is_empty() {
+            diag.firmware_version = firmware;
+        }
+    }
+
+    if let Some(serial) = get_string_path(payload, &["serial_number"]).filter(|s| !s.is_empty()) {
+        if diag.serial_number.trim().is_empty() || is_masked_serial(&diag.serial_number) {
+            diag.serial_number = serial;
+        }
+    }
+
+    if let Some(protocol) = get_string_path(payload, &["device", "protocol"]) {
+        if protocol.eq_ignore_ascii_case("nvme") {
+            diag.transport_type = "NVMe".to_string();
+            diag.interface_type = "NVMExpress".to_string();
+            if diag.media_type.eq_ignore_ascii_case("unknown") || diag.media_type.is_empty() {
+                diag.media_type = "SSD".to_string();
+            }
+        }
+    }
+
+    if let Some(rotation) = get_u64_path(payload, &["rotation_rate"]) {
+        if rotation == 0 {
+            diag.media_type = "SSD".to_string();
+        } else if rotation > 0 {
+            diag.media_type = "HDD".to_string();
+        }
+    }
+
+    if diag.temperature_c.is_none() {
+        diag.temperature_c = extract_smartctl_temperature(payload);
+    }
+    if diag.power_on_hours.is_none() {
+        diag.power_on_hours = get_u64_path(payload, &["power_on_time", "hours"]).or_else(|| {
+            get_u64_path(
+                payload,
+                &["nvme_smart_health_information_log", "power_on_hours"],
+            )
+        });
+    }
+    if diag.power_cycle_count.is_none() {
+        diag.power_cycle_count = get_u64_path(payload, &["power_cycle_count"]).or_else(|| {
+            get_u64_path(
+                payload,
+                &["nvme_smart_health_information_log", "power_cycles"],
+            )
+        });
+    }
+    if diag.percentage_used.is_none() {
+        diag.percentage_used = get_f64_path(
+            payload,
+            &["nvme_smart_health_information_log", "percentage_used"],
+        );
+    }
+    if diag.host_reads_total.is_none() {
+        diag.host_reads_total = get_u64_path(
+            payload,
+            &["nvme_smart_health_information_log", "host_reads"],
+        )
+        .or_else(|| {
+            get_u64_path(
+                payload,
+                &["nvme_smart_health_information_log", "data_units_read"],
+            )
+        });
+    }
+    if diag.host_writes_total.is_none() {
+        diag.host_writes_total = get_u64_path(
+            payload,
+            &["nvme_smart_health_information_log", "host_writes"],
+        )
+        .or_else(|| {
+            get_u64_path(
+                payload,
+                &["nvme_smart_health_information_log", "data_units_written"],
+            )
+        });
+    }
+    if diag.read_errors_total.is_none() {
+        diag.read_errors_total = get_u64_path(
+            payload,
+            &["nvme_smart_health_information_log", "media_errors"],
+        );
+    }
+
+    if diag.write_errors_total.is_none() {
+        diag.write_errors_total = get_u64_path(
+            payload,
+            &["nvme_smart_health_information_log", "num_err_log_entries"],
+        );
+    }
+
+    if let Some(enabled) = get_bool_path(payload, &["smart_support", "enabled"]) {
+        diag.smart_enabled = enabled;
+        diag.smart_supported = true;
+    }
+    if let Some(_passed) = get_bool_path(payload, &["smart_status", "passed"]) {
+        diag.smart_supported = true;
+    }
+
+    let smartctl_attrs = parse_smartctl_ata_attributes(payload);
+    if !smartctl_attrs.is_empty() {
+        if diag.smart_attributes.len() < smartctl_attrs.len() {
+            diag.smart_attributes = smartctl_attrs.clone();
+        }
+        diag.ata_smart_available = true;
+        diag.smart_supported = true;
+        diag.smart_data_source = merge_smart_source(&diag.smart_data_source, "SMARTCTL_ATA");
+
+        if diag.temperature_c.is_none() {
+            diag.temperature_c = smartctl_attr_raw(&smartctl_attrs, 194)
+                .or_else(|| smartctl_attr_raw(&smartctl_attrs, 190))
+                .map(raw_temp_to_celsius);
+        }
+        if diag.power_on_hours.is_none() {
+            diag.power_on_hours = smartctl_attr_raw_u64(&smartctl_attrs, 9);
+        }
+        if diag.power_cycle_count.is_none() {
+            diag.power_cycle_count = smartctl_attr_raw_u64(&smartctl_attrs, 12);
+        }
+        if diag.host_writes_total.is_none() {
+            diag.host_writes_total = smartctl_attr_raw_u64(&smartctl_attrs, 241);
+        }
+        if diag.host_reads_total.is_none() {
+            diag.host_reads_total = smartctl_attr_raw_u64(&smartctl_attrs, 242);
+        }
+        if diag.read_errors_total.is_none() {
+            diag.read_errors_total = smartctl_attr_raw_u64(&smartctl_attrs, 1)
+                .or_else(|| smartctl_attr_raw_u64(&smartctl_attrs, 187));
+        }
+        if diag.write_errors_total.is_none() {
+            diag.write_errors_total = smartctl_attr_raw_u64(&smartctl_attrs, 200)
+                .or_else(|| smartctl_attr_raw_u64(&smartctl_attrs, 181));
+        }
+        if diag.percentage_used.is_none() {
+            if let Some(life_left) = smartctl_attr_current(&smartctl_attrs, 231)
+                .or_else(|| smartctl_attr_current(&smartctl_attrs, 233))
+                .or_else(|| smartctl_attr_current(&smartctl_attrs, 202))
+            {
+                let used = (100.0 - life_left as f64).clamp(0.0, 100.0);
+                diag.percentage_used = Some(used);
+            }
+        }
+    }
+
+    if payload.get("nvme_smart_health_information_log").is_some() {
+        diag.smart_supported = true;
+        diag.smart_data_source = merge_smart_source(&diag.smart_data_source, "SMARTCTL_NVME");
+    }
+
+    let mut rel = match std::mem::take(&mut diag.reliability) {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    merge_smartctl_reliability(&mut rel, payload, diag.smart_attributes.len());
+    diag.reliability = Value::Object(rel);
+}
+
+fn merge_smartctl_reliability(
+    reliability: &mut Map<String, Value>,
+    payload: &Value,
+    attr_count: usize,
+) {
+    insert_if_absent(
+        reliability,
+        "Smartctl.Device",
+        get_string_path(payload, &["device", "name"]).map(Value::String),
+    );
+    insert_if_absent(
+        reliability,
+        "Smartctl.DeviceType",
+        get_string_path(payload, &["device", "type"]).map(Value::String),
+    );
+    insert_if_absent(
+        reliability,
+        "Smartctl.Protocol",
+        get_string_path(payload, &["device", "protocol"]).map(Value::String),
+    );
+    insert_if_absent(
+        reliability,
+        "Smartctl.ExitStatus",
+        get_u64_path(payload, &["smartctl", "exit_status"]).map(Value::from),
+    );
+    insert_if_absent(
+        reliability,
+        "Smartctl.RotationRate",
+        get_u64_path(payload, &["rotation_rate"]).map(Value::from),
+    );
+
+    if let Some(capacity) = get_u64_path(payload, &["user_capacity", "bytes"]) {
+        insert_if_absent(
+            reliability,
+            "Smartctl.UserCapacityBytes",
+            Some(Value::from(capacity)),
+        );
+    }
+
+    if payload.get("ata_smart_attributes").is_some() {
+        insert_if_absent(
+            reliability,
+            "Smartctl.AtaAttributeCount",
+            Some(Value::from(attr_count as u64)),
+        );
+    }
+
+    let nvme_fields = [
+        ("Nvme.CriticalWarning", "critical_warning"),
+        ("Nvme.AvailableSpare", "available_spare"),
+        ("Nvme.AvailableSpareThreshold", "available_spare_threshold"),
+        ("Nvme.PercentageUsed", "percentage_used"),
+        ("Nvme.DataUnitsRead", "data_units_read"),
+        ("Nvme.DataUnitsWritten", "data_units_written"),
+        ("Nvme.HostReads", "host_reads"),
+        ("Nvme.HostWrites", "host_writes"),
+        ("Nvme.ControllerBusyTime", "controller_busy_time"),
+        ("Nvme.PowerCycles", "power_cycles"),
+        ("Nvme.PowerOnHours", "power_on_hours"),
+        ("Nvme.UnsafeShutdowns", "unsafe_shutdowns"),
+        ("Nvme.MediaErrors", "media_errors"),
+        ("Nvme.ErrorLogEntries", "num_err_log_entries"),
+    ];
+
+    for (key, field) in nvme_fields {
+        let path = ["nvme_smart_health_information_log", field];
+        if let Some(v) = get_path(payload, &path).and_then(value_to_json_scalar) {
+            insert_if_absent(reliability, key, Some(v));
+        }
+    }
+}
+
+fn parse_smartctl_ata_attributes(payload: &Value) -> Vec<SmartAttribute> {
+    let mut attrs = Vec::new();
+    let Some(table) =
+        get_path(payload, &["ata_smart_attributes", "table"]).and_then(Value::as_array)
+    else {
+        return attrs;
+    };
+
+    for item in table {
+        let Some(id) = get_path(item, &["id"]).and_then(value_to_u64) else {
+            continue;
+        };
+        let name = get_string_path(item, &["name"]).unwrap_or_else(|| format!("Attribute {}", id));
+        let current = get_path(item, &["value"])
+            .and_then(value_to_u64)
+            .map(|v| v as u32);
+        let worst = get_path(item, &["worst"])
+            .and_then(value_to_u64)
+            .map(|v| v as u32);
+        let threshold = get_path(item, &["thresh"])
+            .and_then(value_to_u64)
+            .map(|v| v as u32);
+        let raw = get_path(item, &["raw"])
+            .and_then(|v| get_path(v, &["value"]).or(Some(v)))
+            .and_then(value_to_u64);
+        let raw_hex = raw
+            .map(|v| format!("0x{:X}", v))
+            .unwrap_or_else(String::new);
+
+        attrs.push(SmartAttribute {
+            id: id as u32,
+            name,
+            current,
+            worst,
+            threshold,
+            raw,
+            raw_hex,
+        });
+    }
+    attrs
+}
+
+fn smartctl_attr_raw(attrs: &[SmartAttribute], id: u32) -> Option<f64> {
+    attrs
+        .iter()
+        .find(|a| a.id == id)
+        .and_then(|a| a.raw)
+        .map(|v| v as f64)
+}
+
+fn smartctl_attr_raw_u64(attrs: &[SmartAttribute], id: u32) -> Option<u64> {
+    attrs.iter().find(|a| a.id == id).and_then(|a| a.raw)
+}
+
+fn smartctl_attr_current(attrs: &[SmartAttribute], id: u32) -> Option<u32> {
+    attrs.iter().find(|a| a.id == id).and_then(|a| a.current)
+}
+
+fn raw_temp_to_celsius(raw: f64) -> f64 {
+    if raw <= 200.0 {
+        raw
+    } else {
+        (raw as u64 & 0xFF) as f64
+    }
+}
+
+fn extract_smartctl_temperature(payload: &Value) -> Option<f64> {
+    if let Some(temp) = get_f64_path(payload, &["temperature", "current"]) {
+        return Some(temp);
+    }
+
+    if let Some(mut nvme_temp) = get_f64_path(
+        payload,
+        &["nvme_smart_health_information_log", "temperature"],
+    ) {
+        if nvme_temp > 200.0 {
+            nvme_temp -= 273.15;
+        }
+        return Some((nvme_temp * 10.0).round() / 10.0);
+    }
+
+    None
+}
+
+fn merge_smart_source(existing: &str, add: &str) -> String {
+    if existing.is_empty() || existing.eq_ignore_ascii_case("none") {
+        return add.to_string();
+    }
+    if existing.split('+').any(|x| x.eq_ignore_ascii_case(add)) {
+        return existing.to_string();
+    }
+    format!("{existing}+{add}")
+}
+
+fn add_note_unique(diag: &mut DiskDiagnostics, note: &str) {
+    if !diag.notes.iter().any(|n| n == note) {
+        diag.notes.push(note.to_string());
+    }
+}
+
+fn insert_if_absent(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+    if map.contains_key(key) {
+        return;
+    }
+    if let Some(v) = value {
+        if !v.is_null() {
+            map.insert(key.to_string(), v);
+        }
+    }
+}
+
+fn get_path<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    Some(current)
+}
+
+fn get_string_path(value: &Value, path: &[&str]) -> Option<String> {
+    let v = get_path(value, path)?;
+    if let Some(s) = v.as_str() {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn get_u64_path(value: &Value, path: &[&str]) -> Option<u64> {
+    get_path(value, path).and_then(value_to_u64)
+}
+
+fn get_f64_path(value: &Value, path: &[&str]) -> Option<f64> {
+    get_path(value, path).and_then(value_to_f64)
+}
+
+fn get_bool_path(value: &Value, path: &[&str]) -> Option<bool> {
+    get_path(value, path).and_then(Value::as_bool)
+}
+
+fn value_to_json_scalar(value: &Value) -> Option<Value> {
+    match value {
+        Value::Null => None,
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => Some(value.clone()),
+        Value::Object(_) => {
+            if let Some(n) = value_to_u64(value) {
+                Some(Value::from(n))
+            } else if let Some(f) = value_to_f64(value) {
+                Some(Value::from(f))
+            } else {
+                None
+            }
+        }
+        Value::Array(_) => None,
+    }
+}
+
+fn value_to_u64(value: &Value) -> Option<u64> {
+    match value {
+        Value::Number(n) => n.as_u64().or_else(|| n.as_f64().map(|f| f.max(0.0) as u64)),
+        Value::String(s) => parse_u64_string(s),
+        Value::Object(map) => map.get("value").and_then(value_to_u64),
+        _ => None,
+    }
+}
+
+fn value_to_f64(value: &Value) -> Option<f64> {
+    match value {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => parse_f64_string(s),
+        Value::Object(map) => map.get("value").and_then(value_to_f64),
+        _ => None,
+    }
+}
+
+fn parse_u64_string(s: &str) -> Option<u64> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(n) = trimmed.parse::<u64>() {
+        return Some(n);
+    }
+
+    let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<u64>().ok()
+    }
+}
+
+fn parse_f64_string(s: &str) -> Option<f64> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(n) = trimmed.parse::<f64>() {
+        return Some(n);
+    }
+
+    let normalized: String = trimmed
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    if normalized.is_empty() {
+        None
+    } else {
+        normalized.parse::<f64>().ok()
+    }
+}
+
+fn is_masked_serial(serial: &str) -> bool {
+    let normalized: String = serial
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+
+    if normalized.len() < 4 {
+        return true;
+    }
+    if normalized.chars().all(|c| c == '0' || c == 'D') {
+        return true;
+    }
+    if normalized.chars().all(|c| c == '0') {
+        return true;
+    }
+    if normalized.chars().all(|c| c == 'F') {
+        return true;
+    }
+    false
 }
 
 fn parse_disk(v: &serde_json::Value) -> DiskInfo {
@@ -585,7 +1366,8 @@ fn parse_disk(v: &serde_json::Value) -> DiskInfo {
     let size = v["Size"].as_u64().unwrap_or(0);
     let bus_type = v["BusType"].as_u64().unwrap_or(0);
     let media_type_raw = v["MediaType"].as_str().unwrap_or("").to_string();
-    let is_system = v["IsSystem"].as_bool().unwrap_or(false) || v["IsBoot"].as_bool().unwrap_or(false);
+    let is_system =
+        v["IsSystem"].as_bool().unwrap_or(false) || v["IsBoot"].as_bool().unwrap_or(false);
     let bus_name = v["BusTypeName"]
         .as_str()
         .or_else(|| v["BusType"].as_str())

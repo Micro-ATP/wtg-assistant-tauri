@@ -150,6 +150,9 @@ export interface DiskDiagnostics {
   serial_number: string
   firmware_version: string
   interface_type: string
+  pnp_device_id: string
+  usb_vendor_id: string
+  usb_product_id: string
   transport_type: string
   is_usb: boolean
   bus_type: string

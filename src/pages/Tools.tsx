@@ -225,6 +225,8 @@ function ToolsPage() {
                   <div className="detail-item"><span>{t('tools.hostReads') || '主机读取总量'}</span><strong>{selectedDiag.host_reads_total ?? '--'}</strong></div>
                   <div className="detail-item"><span>{t('tools.hostWrites') || '主机写入总量'}</span><strong>{selectedDiag.host_writes_total ?? '--'}</strong></div>
                   <div className="detail-item"><span>{t('tools.uniqueId') || '唯一标识'}</span><strong>{selectedDiag.unique_id || '--'}</strong></div>
+                  <div className="detail-item"><span>PNP ID</span><strong>{selectedDiag.pnp_device_id || '--'}</strong></div>
+                  <div className="detail-item"><span>USB VID:PID</span><strong>{selectedDiag.usb_vendor_id && selectedDiag.usb_product_id ? `${selectedDiag.usb_vendor_id}:${selectedDiag.usb_product_id}` : '--'}</strong></div>
                 </div>
 
                 {selectedDiag.smart_attributes?.length ? (

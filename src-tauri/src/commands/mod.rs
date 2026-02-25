@@ -4,3 +4,4 @@ pub mod usb;
 pub mod write;
 pub mod benchmark;
 pub mod partition;
+pub mod tools;

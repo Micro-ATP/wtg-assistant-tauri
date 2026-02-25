@@ -23,12 +23,26 @@ export interface DiskInfo {
   is_system?: boolean
 }
 
+export interface PartitionInfo {
+  drive_letter: string
+  label: string
+  filesystem: string
+  size: number
+  free: number
+  disk_number: number
+  protocol: string
+  media_type: string
+  has_windows: boolean
+  windows_name: string
+}
+
 export type PartitionLayout = 'mbr' | 'gpt'
 export type ApplyMode = 'legacy' | 'vhd' | 'vhdx'
 export type BootMode = 'uefi_gpt' | 'uefi_mbr' | 'non_uefi'
 export type VhdType = 'fixed' | 'expandable'
 export type ImageType = 'wim' | 'esd' | 'iso' | 'vhd' | 'vhdx'
 export type FirmwareType = 'bios' | 'uefi' | 'all'
+export type BootRepairFirmware = 'bios' | 'uefi' | 'all'
 export type WriteStatus =
   | 'idle'
   | 'preparing'

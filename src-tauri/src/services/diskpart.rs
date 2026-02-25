@@ -5,6 +5,7 @@
 
 use crate::utils::command::{run_diskpart_script, wait_for_path, CommandExecutor};
 use crate::utils::first_char;
+use crate::AppError;
 use crate::Result;
 use tracing::info;
 
@@ -45,6 +46,150 @@ fn resolve_volume_path(volume_letter: &str, disk_index: &str) -> String {
     }
     // Fallback
     String::new()
+}
+
+fn is_drive_letter_available(letter: char) -> bool {
+    let drive_path = format!("{}:\\", letter);
+    !std::path::Path::new(&drive_path).exists()
+}
+
+fn pick_preferred_mount_letter() -> Option<char> {
+    const PREFERRED: [char; 6] = ['U', 'V', 'W', 'X', 'Y', 'Z'];
+    for letter in PREFERRED {
+        if is_drive_letter_available(letter) {
+            return Some(letter);
+        }
+    }
+
+    for letter in ('D'..='T').rev() {
+        if is_drive_letter_available(letter) {
+            return Some(letter);
+        }
+    }
+
+    None
+}
+
+fn query_efi_partition_and_letter(disk_index: &str) -> Result<Option<(u32, String)>> {
+    #[cfg(target_os = "windows")]
+    {
+        let ps = format!(
+            r#"$efiGuid='{{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}}'
+$parts = Get-Partition -DiskNumber {disk} -ErrorAction SilentlyContinue
+$efi = $parts | Where-Object {{ $_.GptType -eq $efiGuid }} | Select-Object -First 1
+if (-not $efi) {{
+  $efi = $parts | Where-Object {{ [string]$_.Type -match 'System|EFI' }} | Select-Object -First 1
+}}
+if (-not $efi) {{
+  $efi = $parts | Where-Object {{ $_.Size -ge 50MB -and $_.Size -le 1024MB }} | Sort-Object Size | Select-Object -First 1
+}}
+if ($efi) {{
+  $dl=''
+  try {{
+    $v = $efi | Get-Volume -ErrorAction SilentlyContinue
+    if ($v -and $v.DriveLetter) {{ $dl = [string]$v.DriveLetter }}
+  }} catch {{}}
+  Write-Output ('PN=' + $efi.PartitionNumber + ';DL=' + $dl)
+}}"#,
+            disk = disk_index
+        );
+
+        let output = CommandExecutor::execute_allow_fail(
+            "powershell.exe",
+            &["-NoProfile", "-Command", &ps],
+        )?;
+
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("PN=") {
+                continue;
+            }
+
+            let mut part_no: Option<u32> = None;
+            let mut dl = String::new();
+            for seg in trimmed.split(';') {
+                if let Some(v) = seg.strip_prefix("PN=") {
+                    part_no = v.trim().parse::<u32>().ok();
+                } else if let Some(v) = seg.strip_prefix("DL=") {
+                    dl = v.trim().to_ascii_uppercase();
+                }
+            }
+
+            if let Some(pn) = part_no {
+                return Ok(Some((pn, dl)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = disk_index;
+        Ok(None)
+    }
+}
+
+/// Mount EFI partition of the given disk to a preferred drive letter (U, V, W...).
+/// Returns (mounted drive token like "U:", temporary_assigned).
+pub fn mount_efi_partition(disk_index: &str) -> Result<(String, bool)> {
+    #[cfg(target_os = "windows")]
+    {
+        let (partition_number, current_letter) = query_efi_partition_and_letter(disk_index)?
+            .ok_or_else(|| AppError::DeviceNotFound(format!("EFI partition not found on disk {}", disk_index)))?;
+
+        let preferred = pick_preferred_mount_letter();
+        if preferred.is_none() {
+            if !current_letter.is_empty() {
+                let existing = format!("{}:", first_char(&current_letter));
+                info!("No free preferred mount letter, reusing EFI letter {}", existing);
+                return Ok((existing, false));
+            }
+            return Err(AppError::DiskError(
+                "No available drive letter for mounting EFI partition".to_string(),
+            ));
+        }
+
+        let target_letter = preferred.unwrap();
+        let current_first = first_char(&current_letter).to_ascii_uppercase();
+        if !current_first.is_empty() && current_first == target_letter.to_string() {
+            let token = format!("{}:", target_letter);
+            wait_for_path(&format!("{}\\", token), 80, 100);
+            info!("EFI already mounted at preferred letter {}", token);
+            return Ok((token, false));
+        }
+
+        if !current_first.is_empty() {
+            let existing = format!("{}:", current_first);
+            info!(
+                "EFI already has drive letter {}. Reusing it instead of remapping.",
+                existing
+            );
+            return Ok((existing, false));
+        }
+
+        let script = format!(
+            "select disk {disk}\nselect partition {part}\nremove noerr\nassign letter={letter} noerr\nexit\n",
+            disk = disk_index,
+            part = partition_number,
+            letter = target_letter
+        );
+        run_diskpart_script(&script)?;
+
+        let token = format!("{}:", target_letter);
+        let path = format!("{}\\", token);
+        wait_for_path(&path, 100, 100);
+        info!("EFI mounted to {}", token);
+        Ok((token, true))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = disk_index;
+        Err(AppError::Unsupported(
+            "EFI mounting is currently implemented on Windows only".to_string(),
+        ))
+    }
 }
 
 /// Generate and execute GPT + UEFI partition script
@@ -106,7 +251,6 @@ pub fn diskpart_gpt_uefi(
         script.push_str("select partition 2\n");
     }
     script.push_str("format fs=fat32 quick\n");
-    script.push_str("assign\n");
     script.push_str("exit\n");
 
     run_diskpart_script(&script)?;
@@ -165,7 +309,6 @@ pub fn diskpart_mbr_uefi(
     script.push_str("remove noerr\n");
     script.push_str("format fs=fat32 quick\n");
     script.push_str("active\n");
-    script.push_str("assign\n");
     script.push_str("exit\n");
 
     run_diskpart_script(&script)?;

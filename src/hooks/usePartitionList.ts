@@ -1,16 +1,6 @@
 import { useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-
-export interface PartitionInfo {
-  drive_letter: string
-  label: string
-  filesystem: string
-  size: number
-  free: number
-  disk_number: number
-  protocol: string
-  media_type: string
-}
+import { toolsApi } from '@/services/api'
+import type { PartitionInfo } from '@/types'
 
 export function usePartitionList() {
   const [partitions, setPartitions] = useState<PartitionInfo[]>([])
@@ -20,7 +10,7 @@ export function usePartitionList() {
   const load = async () => {
     try {
       setLoading(true)
-      const result = await invoke<PartitionInfo[]>('list_partitions')
+      const result = await toolsApi.listPartitions()
       setPartitions(result)
       setError(null)
     } catch (err) {

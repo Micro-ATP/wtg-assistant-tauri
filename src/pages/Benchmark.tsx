@@ -66,16 +66,6 @@ function formatTick(v: number, compact = false): string {
   return v.toFixed(2)
 }
 
-function formatDurationShort(seconds: number): string {
-  const safe = Math.max(0, Math.floor(seconds))
-  const h = Math.floor(safe / 3600)
-  const m = Math.floor((safe % 3600) / 60)
-  const s = safe % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
-}
-
 function chartBase() {
   return {
     plotW: CHART.width - CHART.left - CHART.right,
@@ -158,8 +148,7 @@ function BenchmarkPage() {
   const [benchError, setBenchError] = useState<string | null>(null)
   const [currentMode, setCurrentMode] = useState<BenchmarkMode | null>(null)
   const [currentModeStartedAt, setCurrentModeStartedAt] = useState<number | null>(null)
-  const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
-  const [nowMs, setNowMs] = useState<number>(Date.now())
+  const [progressNowMs, setProgressNowMs] = useState<number>(Date.now())
   const [canceling, setCanceling] = useState(false)
 
   const visibleParts = useMemo(
@@ -188,18 +177,9 @@ function BenchmarkPage() {
 
   useEffect(() => {
     if (!running) return
-    const id = window.setInterval(() => setNowMs(Date.now()), 250)
+    const id = window.setInterval(() => setProgressNowMs(Date.now()), 300)
     return () => window.clearInterval(id)
   }, [running])
-
-  const estimateModeSeconds = useCallback((mode: BenchmarkMode): number => {
-    if (mode !== 'fullwrite') return MODE_BASE_ESTIMATE_SECONDS[mode]
-    const freeBytes = Math.max(0, selectedDisk?.free || 0)
-    const media = (selectedDisk?.media_type || '').toUpperCase()
-    const assumedMbS = media.includes('HDD') || media.includes('ROTATIONAL') ? 120 : 280
-    const estimated = freeBytes / 1024 / 1024 / assumedMbS
-    return Math.max(60, Math.min(2 * 3600, Math.round(estimated)))
-  }, [selectedDisk?.free, selectedDisk?.media_type])
 
   const selectedModes = useMemo<BenchmarkMode[]>(() => {
     const queue: BenchmarkMode[] = [primaryMode]
@@ -211,20 +191,27 @@ function BenchmarkPage() {
     return queue
   }, [primaryMode, extraModes])
 
-  const progressInfo = useMemo(() => {
-    const totalEstimate = selectedModes.reduce((sum, mode) => sum + estimateModeSeconds(mode), 0)
+  const estimateModeSeconds = useCallback((mode: BenchmarkMode): number => {
+    if (mode !== 'fullwrite') return MODE_BASE_ESTIMATE_SECONDS[mode]
+    const freeBytes = Math.max(0, selectedDisk?.free || 0)
+    const media = (selectedDisk?.media_type || '').toUpperCase()
+    const assumedMbS = media.includes('HDD') || media.includes('ROTATIONAL') ? 120 : 280
+    const estimated = freeBytes / 1024 / 1024 / assumedMbS
+    return Math.max(60, Math.min(2 * 3600, Math.round(estimated)))
+  }, [selectedDisk?.free, selectedDisk?.media_type])
+
+  const progressPercent = useMemo(() => {
+    if (!running) return 100
+    const totalEstimate = Math.max(1, selectedModes.reduce((sum, mode) => sum + estimateModeSeconds(mode), 0))
     const doneEstimate = selectedModes.reduce((sum, mode) => sum + (results[mode] ? estimateModeSeconds(mode) : 0), 0)
-    const runningEstimate = currentMode ? estimateModeSeconds(currentMode) : 0
-    const runningElapsed =
-      running && currentMode && currentModeStartedAt
-        ? Math.min((nowMs - currentModeStartedAt) / 1000, runningEstimate)
-        : 0
-    const completedRatio = totalEstimate > 0 ? (doneEstimate + runningElapsed) / totalEstimate : 0
-    const progress = Math.max(0, Math.min(100, completedRatio * 100))
-    const remaining = Math.max(0, totalEstimate - doneEstimate - runningElapsed)
-    const elapsed = runStartedAt ? (nowMs - runStartedAt) / 1000 : 0
-    return { progress, remaining, elapsed }
-  }, [selectedModes, results, currentMode, currentModeStartedAt, running, nowMs, runStartedAt, estimateModeSeconds])
+    const currentEstimate = currentMode ? estimateModeSeconds(currentMode) : 0
+    const elapsedSec = currentModeStartedAt ? Math.max(0, (progressNowMs - currentModeStartedAt) / 1000) : 0
+
+    // Keep a small headroom in each stage so progress does not appear "finished" too early.
+    const runningContribution = Math.min(elapsedSec, currentEstimate * 0.92)
+    const raw = ((doneEstimate + runningContribution) / totalEstimate) * 80
+    return Math.max(1, Math.min(80, raw))
+  }, [running, selectedModes, estimateModeSeconds, results, currentMode, currentModeStartedAt, progressNowMs])
 
   const runModesSequential = async (targetPath: string) => {
     const queue = [...selectedModes]
@@ -260,8 +247,7 @@ function BenchmarkPage() {
     const targetPath = `${selectedDisk.volume.replace(':', '')}:\\`
     try {
       setRunning(true)
-      setNowMs(Date.now())
-      setRunStartedAt(Date.now())
+      setProgressNowMs(Date.now())
       setBenchError(null)
       setCurrentMode(null)
       setCurrentModeStartedAt(null)
@@ -393,18 +379,10 @@ function BenchmarkPage() {
           <div className="bench-progress-wrap">
             <div className="bench-progress-head">
               <span>{t('benchmark.progress') || 'Progress'}</span>
-              <span>{progressInfo.progress.toFixed(0)}%</span>
+              <span>{Math.round(progressPercent)}%</span>
             </div>
             <div className="bench-progress-track">
-              <div className="bench-progress-fill" style={{ width: `${progressInfo.progress}%` }} />
-            </div>
-            <div className="bench-progress-meta">
-              <span>
-                {(t('benchmark.elapsed') || 'Elapsed')}: {formatDurationShort(progressInfo.elapsed)}
-              </span>
-              <span>
-                {(t('benchmark.remaining') || 'Estimated remaining')}: {formatDurationShort(progressInfo.remaining)}
-              </span>
+              <div className="bench-progress-fill" style={{ width: `${progressPercent}%` }} />
             </div>
           </div>
         ) : null}
@@ -551,7 +529,9 @@ function BenchmarkPage() {
                         <polyline fill="none" stroke="#2b7fff" strokeWidth="2.5" points={random4kChart.linePath} />
 
                         {random4kChart.points.map((p, idx) => (
-                          <circle key={`r4k-p-${mode}-${idx}`} cx={p.px} cy={p.py} r={2.8} className="chart-point" />
+                          <circle key={`r4k-p-${mode}-${idx}`} cx={p.px} cy={p.py} r={2.8} className="chart-point">
+                            <title>{`t=${p.x.toFixed(2)} s, ${p.y.toFixed(2)} MB/s`}</title>
+                          </circle>
                         ))}
 
                         <text x={CHART.left + random4kChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">
@@ -607,7 +587,9 @@ function BenchmarkPage() {
 
                         {threadChart.points.map((p) => (
                           <g key={`mt-p-${mode}-${p.threads}`}>
-                            <circle cx={p.x} cy={p.y} r={4} className="chart-point" />
+                            <circle cx={p.x} cy={p.y} r={4} className="chart-point">
+                              <title>{`${p.threads} threads, ${p.mb_s.toFixed(2)} MB/s`}</title>
+                            </circle>
                             <text x={p.x} y={p.y - 8} className="axis-text" textAnchor="middle">{p.mb_s.toFixed(1)}</text>
                           </g>
                         ))}
@@ -670,11 +652,13 @@ function BenchmarkPage() {
                         {seqChart.points
                           .filter((_, idx) => idx % Math.max(Math.floor(seqChart.points.length / 20), 1) === 0)
                           .map((p, idx) => (
-                            <circle key={`seq-p-${mode}-${idx}`} cx={p.x} cy={p.y} r={2.8} className="chart-point chart-point-alt" />
+                            <circle key={`seq-p-${mode}-${idx}`} cx={p.x} cy={p.y} r={2.8} className="chart-point chart-point-alt">
+                              <title>{`written=${p.x_gb.toFixed(2)} GB, ${p.value.toFixed(2)} MB/s`}</title>
+                            </circle>
                           ))}
 
                         <text x={CHART.left + seqChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">
-                          {t('benchmark.written') || 'Written (GB)'}
+                          {t('benchmark.writtenCapacity') || 'Written Capacity (GB)'}
                         </text>
                         <text
                           x={16}
@@ -729,7 +713,9 @@ function BenchmarkPage() {
                         <polyline fill="none" stroke="#f59e0b" strokeWidth="2.5" points={scenarioChart.linePath} />
 
                         {scenarioChart.points.map((p, idx) => (
-                          <circle key={`sce-p-${mode}-${idx}`} cx={p.px} cy={p.py} r={2.8} className="chart-point chart-point-warm" />
+                          <circle key={`sce-p-${mode}-${idx}`} cx={p.px} cy={p.py} r={2.8} className="chart-point chart-point-warm">
+                            <title>{`t=${p.x.toFixed(2)} s, ${p.y.toFixed(2)} ops/s`}</title>
+                          </circle>
                         ))}
 
                         <text x={CHART.left + scenarioChart.plotW / 2} y={CHART.height - 8} className="axis-title" textAnchor="middle">

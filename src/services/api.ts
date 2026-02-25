@@ -7,6 +7,8 @@ import type {
   ImageInfo,
   BenchmarkResult,
   DiskDiagnostics,
+  PartitionInfo,
+  BootRepairFirmware,
 } from '@/types'
 
 /**
@@ -159,6 +161,31 @@ export const benchmarkApi = {
       await invoke('cancel_benchmark')
     } catch (error) {
       console.error('Failed to cancel benchmark:', error)
+      throw error
+    }
+  },
+}
+
+/**
+ * Tools API
+ */
+export const toolsApi = {
+  listPartitions: async (): Promise<PartitionInfo[]> => {
+    try {
+      const partitions = await invoke<PartitionInfo[]>('list_partitions')
+      return partitions
+    } catch (error) {
+      console.error('Failed to list partitions:', error)
+      throw error
+    }
+  },
+
+  repairBoot: async (targetDisk: string, firmware: BootRepairFirmware = 'all'): Promise<string> => {
+    try {
+      const result = await invoke<string>('repair_boot', { targetDisk, firmware })
+      return result
+    } catch (error) {
+      console.error('Failed to repair boot:', error)
       throw error
     }
   },

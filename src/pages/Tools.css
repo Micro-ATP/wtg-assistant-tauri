@@ -357,6 +357,101 @@ html[data-theme="light"] .disk-row.selected .disk-row-main span {
   color: var(--color-text-secondary);
 }
 
+.tool-form {
+  margin-top: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.tool-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.form-field input,
+.form-field select {
+  width: 100%;
+}
+
+.tool-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.tool-actions {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.success-msg {
+  margin-bottom: var(--spacing-sm);
+  border: 1px solid #84d19b;
+  border-radius: var(--radius-small);
+  background: #eaf8ef;
+  color: #0a7d2c;
+  padding: 10px 12px;
+  font-size: var(--font-size-small);
+}
+
+.capacity-result-card {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-medium);
+  background: var(--color-background-secondary);
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.capacity-result-card span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.capacity-result-card strong {
+  font-size: 22px;
+  line-height: 1.3;
+  color: var(--color-primary-brand);
+  word-break: break-word;
+}
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.preset-btn {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-small);
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+  padding: 6px 10px;
+  font-size: 12px;
+  min-width: 56px;
+}
+
+.preset-btn.active {
+  border-color: var(--color-primary-brand);
+  background: color-mix(in srgb, var(--color-primary-brand) 12%, var(--color-background-secondary));
+}
+
 @media (max-width: 1100px) {
   .disk-diag-layout {
     grid-template-columns: 1fr;
@@ -371,6 +466,10 @@ html[data-theme="light"] .disk-row.selected .disk-row-main span {
   .detail-grid,
   .reliability-grid {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .tool-form-grid {
+    grid-template-columns: 1fr;
   }
 }
 

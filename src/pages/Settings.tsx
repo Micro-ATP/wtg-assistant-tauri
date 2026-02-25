@@ -24,7 +24,12 @@ async function openExternal(url: string) {
 }
 
 function normalizeVersion(input: string): string {
-  return input.trim().replace(/^v/i, '').split('-')[0]
+  const trimmed = input.trim()
+  const matched = trimmed.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/)
+  if (matched?.[1]) {
+    return matched[1]
+  }
+  return trimmed.replace(/^v/i, '').split('-')[0]
 }
 
 function compareVersions(aRaw: string, bRaw: string): number | null {
@@ -62,7 +67,7 @@ function SettingsPage() {
   const [updateState, setUpdateState] = useState<'latest' | 'update' | 'beta' | 'error'>('latest')
   const [updateMessage, setUpdateMessage] = useState<string>(t('settingsPage.checkingUpdate') || 'Checking for updates...')
 
-  const currentVersion = useMemo(() => t('common.version') || 'V0.0.1-Alpha', [t])
+  const currentVersion = useMemo(() => t('common.version') || 'V0.0.3-Alpha', [t])
 
   const themeOptions: Array<{ value: ThemeValue; label: string }> = [
     { value: 'light', label: t('settingsPage.themeLight') || '明亮' },

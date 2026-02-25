@@ -1,0 +1,414 @@
+// Windows SMART API implementation
+// Migrated from CrystalDiskInfo (MIT License)
+// Original Author: hiyohiyo (https://crystalmark.info/)
+
+pub mod nvme;
+
+use std::mem;
+use windows::core::PCSTR;
+use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileA, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
+use windows::Win32::System::IO::DeviceIoControl;
+
+const READ_ATTRIBUTE_BUFFER_SIZE: usize = 512;
+
+// ATA Commands
+const SMART_CMD: u8 = 0xB0;
+
+// SMART Sub Commands
+const READ_ATTRIBUTES: u8 = 0xD0;
+const READ_THRESHOLDS: u8 = 0xD1;
+
+// IOCTL codes
+const DFP_RECEIVE_DRIVE_DATA: u32 = 0x0007C088;
+const IOCTL_ATA_PASS_THROUGH: u32 = 0x0004D02C;
+
+// ATA Pass Through flags
+const ATA_FLAGS_DRDY_REQUIRED: u16 = 0x01;
+const ATA_FLAGS_DATA_IN: u16 = 0x02;
+const GENERIC_READ: u32 = 0x8000_0000;
+const GENERIC_WRITE: u32 = 0x4000_0000;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct IdeRegs {
+    features_register: u8,
+    sector_count_register: u8,
+    sector_number_register: u8,
+    cyl_low_register: u8,
+    cyl_high_register: u8,
+    drive_head_register: u8,
+    command_register: u8,
+    reserved: u8,
+}
+
+#[repr(C)]
+struct SendCmdInParams {
+    buffer_size: u32,
+    irdrives_regs: IdeRegs,
+    drive_number: u8,
+    reserved: [u8; 3],
+    reserved2: [u32; 4],
+    buffer: [u8; 1],
+}
+
+#[repr(C)]
+struct DriverStatus {
+    driver_error: u8,
+    ide_status: u8,
+    reserved: [u8; 2],
+    reserved2: [u32; 2],
+}
+
+#[repr(C)]
+struct SendCmdOutParams {
+    buffer_size: u32,
+    driver_status: DriverStatus,
+    buffer: [u8; 1],
+}
+
+#[repr(C)]
+struct AtaPassThroughEx {
+    length: u16,
+    ata_flags: u16,
+    path_id: u8,
+    target_id: u8,
+    lun: u8,
+    reserved_as_uchar: u8,
+    data_transfer_length: u32,
+    timeout_value: u32,
+    reserved_as_ulong: u32,
+    data_buffer_offset: usize,
+    previous_task_file: IdeRegs,
+    current_task_file: IdeRegs,
+}
+
+#[repr(C)]
+struct AtaPassThroughExWithBuffers {
+    apt: AtaPassThroughEx,
+    filler: u32,
+    buf: [u8; 512],
+}
+
+pub struct SmartData {
+    pub attributes: Vec<SmartAttribute>,
+    pub temperature: Option<i32>,
+    pub power_on_hours: Option<u64>,
+    pub power_cycle_count: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SmartAttribute {
+    pub id: u8,
+    pub current: u8,
+    pub worst: u8,
+    pub threshold: u8,
+    pub raw: u64,
+}
+
+pub struct DiskHandle {
+    handle: HANDLE,
+}
+
+impl DiskHandle {
+    pub fn open(physical_drive_id: u32) -> Result<Self, String> {
+        let path = format!("\\\\.\\PhysicalDrive{}\0", physical_drive_id);
+        let access_attempts = [GENERIC_READ | GENERIC_WRITE, GENERIC_READ, 0];
+
+        for access in access_attempts {
+            unsafe {
+                if let Ok(handle) = CreateFileA(
+                    PCSTR(path.as_ptr()),
+                    access,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    None,
+                ) {
+                    if handle != INVALID_HANDLE_VALUE {
+                        return Ok(DiskHandle { handle });
+                    }
+                }
+            }
+        }
+
+        Err(format!(
+            "Failed to open disk path {} with required access",
+            path.trim_end_matches('\0')
+        ))
+    }
+
+    pub fn read_smart_data(&self) -> Result<SmartData, String> {
+        // Try different methods in order of preference
+        if let Ok(data) = self.read_smart_ata_pass_through() {
+            return Ok(data);
+        }
+
+        if let Ok(data) = self.read_smart_physical_drive() {
+            return Ok(data);
+        }
+
+        Err("Failed to read SMART data using any method".to_string())
+    }
+
+    fn read_smart_physical_drive(&self) -> Result<SmartData, String> {
+        let mut attributes = Vec::new();
+
+        // Read SMART attributes
+        let attr_data = self.send_smart_command(READ_ATTRIBUTES)?;
+
+        // Read SMART thresholds
+        let threshold_data = self.send_smart_command(READ_THRESHOLDS)?;
+
+        // Parse attributes (starting at offset 2, 12 bytes per attribute)
+        for i in (2..362).step_by(12) {
+            let id = attr_data[i];
+            if id == 0 {
+                continue;
+            }
+
+            let current = attr_data[i + 3];
+            let worst = attr_data[i + 4];
+
+            // Raw value is 6 bytes little-endian
+            let raw = u64::from_le_bytes([
+                attr_data[i + 5],
+                attr_data[i + 6],
+                attr_data[i + 7],
+                attr_data[i + 8],
+                attr_data[i + 9],
+                attr_data[i + 10],
+                0,
+                0,
+            ]);
+
+            // Find matching threshold
+            let mut threshold = 0;
+            for j in (2..362).step_by(12) {
+                if threshold_data[j] == id {
+                    threshold = threshold_data[j + 1];
+                    break;
+                }
+            }
+
+            attributes.push(SmartAttribute {
+                id,
+                current,
+                worst,
+                threshold,
+                raw,
+            });
+        }
+
+        let smart_data = SmartData::from_attributes(&attributes);
+        Ok(smart_data)
+    }
+
+    fn read_smart_ata_pass_through(&self) -> Result<SmartData, String> {
+        let mut attributes = Vec::new();
+
+        // Read SMART attributes using ATA Pass Through
+        let attr_data = self.send_ata_pass_through_command(SMART_CMD, READ_ATTRIBUTES)?;
+        let threshold_data = self.send_ata_pass_through_command(SMART_CMD, READ_THRESHOLDS)?;
+
+        // Parse attributes
+        for i in (2..362).step_by(12) {
+            let id = attr_data[i];
+            if id == 0 {
+                continue;
+            }
+
+            let current = attr_data[i + 3];
+            let worst = attr_data[i + 4];
+            let raw = u64::from_le_bytes([
+                attr_data[i + 5],
+                attr_data[i + 6],
+                attr_data[i + 7],
+                attr_data[i + 8],
+                attr_data[i + 9],
+                attr_data[i + 10],
+                0,
+                0,
+            ]);
+
+            let mut threshold = 0;
+            for j in (2..362).step_by(12) {
+                if threshold_data[j] == id {
+                    threshold = threshold_data[j + 1];
+                    break;
+                }
+            }
+
+            attributes.push(SmartAttribute {
+                id,
+                current,
+                worst,
+                threshold,
+                raw,
+            });
+        }
+
+        let smart_data = SmartData::from_attributes(&attributes);
+        Ok(smart_data)
+    }
+
+    fn send_smart_command(&self, sub_command: u8) -> Result<Vec<u8>, String> {
+        unsafe {
+            let mut in_params = vec![0u8; mem::size_of::<SendCmdInParams>()];
+            let params = in_params.as_mut_ptr() as *mut SendCmdInParams;
+
+            (*params).buffer_size = READ_ATTRIBUTE_BUFFER_SIZE as u32;
+            (*params).irdrives_regs.features_register = sub_command;
+            (*params).irdrives_regs.sector_count_register = 1;
+            (*params).irdrives_regs.sector_number_register = 1;
+            (*params).irdrives_regs.cyl_low_register = 0x4F;
+            (*params).irdrives_regs.cyl_high_register = 0xC2;
+            (*params).irdrives_regs.drive_head_register = 0xA0;
+            (*params).irdrives_regs.command_register = SMART_CMD;
+
+            let out_size = mem::size_of::<SendCmdOutParams>() + READ_ATTRIBUTE_BUFFER_SIZE - 1;
+            let mut out_params = vec![0u8; out_size];
+            let mut bytes_returned: u32 = 0;
+
+            let result = DeviceIoControl(
+                self.handle,
+                DFP_RECEIVE_DRIVE_DATA,
+                Some(in_params.as_ptr() as *const _),
+                in_params.len() as u32,
+                Some(out_params.as_mut_ptr() as *mut _),
+                out_params.len() as u32,
+                Some(&mut bytes_returned),
+                None,
+            );
+
+            if result.is_err() {
+                return Err("DeviceIoControl failed".to_string());
+            }
+
+            // Extract data from output buffer
+            let _out_ptr = out_params.as_ptr() as *const SendCmdOutParams;
+            let data_offset = mem::size_of::<SendCmdOutParams>() - 1;
+            let data = out_params[data_offset..data_offset + READ_ATTRIBUTE_BUFFER_SIZE].to_vec();
+
+            Ok(data)
+        }
+    }
+
+    fn send_ata_pass_through_command(&self, command: u8, features: u8) -> Result<Vec<u8>, String> {
+        unsafe {
+            let mut apt_buf = AtaPassThroughExWithBuffers {
+                apt: AtaPassThroughEx {
+                    length: mem::size_of::<AtaPassThroughEx>() as u16,
+                    ata_flags: ATA_FLAGS_DATA_IN | ATA_FLAGS_DRDY_REQUIRED,
+                    path_id: 0,
+                    target_id: 0,
+                    lun: 0,
+                    reserved_as_uchar: 0,
+                    data_transfer_length: 512,
+                    timeout_value: 2,
+                    reserved_as_ulong: 0,
+                    data_buffer_offset: mem::size_of::<AtaPassThroughEx>() + 4,
+                    previous_task_file: mem::zeroed(),
+                    current_task_file: IdeRegs {
+                        features_register: features,
+                        sector_count_register: 1,
+                        sector_number_register: 1,
+                        cyl_low_register: 0x4F,
+                        cyl_high_register: 0xC2,
+                        drive_head_register: 0xA0,
+                        command_register: command,
+                        reserved: 0,
+                    },
+                },
+                filler: 0,
+                buf: [0; 512],
+            };
+
+            let mut bytes_returned: u32 = 0;
+            let buffer_size = mem::size_of::<AtaPassThroughExWithBuffers>();
+
+            let result = DeviceIoControl(
+                self.handle,
+                IOCTL_ATA_PASS_THROUGH,
+                Some(&apt_buf as *const _ as *const _),
+                buffer_size as u32,
+                Some(&mut apt_buf as *mut _ as *mut _),
+                buffer_size as u32,
+                Some(&mut bytes_returned),
+                None,
+            );
+
+            if result.is_err() {
+                return Err("ATA Pass Through failed".to_string());
+            }
+
+            Ok(apt_buf.buf.to_vec())
+        }
+    }
+}
+
+impl Drop for DiskHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
+impl SmartData {
+    fn from_attributes(attributes: &[SmartAttribute]) -> Self {
+        let temperature = attributes
+            .iter()
+            .find(|a| a.id == 194 || a.id == 190)
+            .map(|a| {
+                let raw = a.raw;
+                if raw <= 200 {
+                    raw as i32
+                } else {
+                    (raw & 0xFF) as i32
+                }
+            });
+
+        let power_on_hours = attributes
+            .iter()
+            .find(|a| a.id == 9)
+            .map(|a| a.raw);
+
+        let power_cycle_count = attributes
+            .iter()
+            .find(|a| a.id == 12)
+            .map(|a| a.raw);
+
+        SmartData {
+            attributes: attributes.to_vec(),
+            temperature,
+            power_on_hours,
+            power_cycle_count,
+        }
+    }
+
+    pub fn get_attribute(&self, id: u8) -> Option<&SmartAttribute> {
+        self.attributes.iter().find(|a| a.id == id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_open_disk() {
+        // This test requires admin privileges
+        if let Ok(handle) = DiskHandle::open(0) {
+            println!("Successfully opened PhysicalDrive0");
+            if let Ok(smart_data) = handle.read_smart_data() {
+                println!("Temperature: {:?}", smart_data.temperature);
+                println!("Power On Hours: {:?}", smart_data.power_on_hours);
+                println!("Attributes count: {}", smart_data.attributes.len());
+            }
+        }
+    }
+}

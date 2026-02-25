@@ -1,3 +1,5 @@
+mod smart;
+
 use crate::commands::disk::DiskDiagnostics;
 use crate::commands::disk::DiskInfo;
 use crate::commands::disk::SmartAttribute;
@@ -5,7 +7,7 @@ use crate::utils::command::CommandExecutor;
 use crate::{AppError, Result};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
-use tracing::info;
+use tracing::{info, warn};
 
 /// PowerShell script to get disk info with volume letters.
 /// For each disk, we query its partitions → volumes → drive letters.
@@ -584,7 +586,362 @@ pub async fn list_disk_diagnostics() -> Result<Vec<DiskDiagnostics>> {
     };
 
     enrich_with_smartctl(&mut diagnostics);
+    enrich_with_native_smart(&mut diagnostics);
     Ok(diagnostics)
+}
+
+fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
+    for diag in diagnostics.iter_mut() {
+        let looks_nvme = is_nvme_diag(diag);
+        let mut nvme_ok = false;
+
+        if looks_nvme {
+            match smart::nvme::NVMeHandle::open(diag.disk_number) {
+                Ok(handle) => {
+                    if let Ok(id_ctrl) = handle.read_identify_controller() {
+                        if diag.model.trim().is_empty() && !id_ctrl.model.is_empty() {
+                            diag.model = id_ctrl.model;
+                        }
+                        if (diag.serial_number.trim().is_empty()
+                            || is_masked_serial(&diag.serial_number))
+                            && !id_ctrl.serial_number.is_empty()
+                        {
+                            diag.serial_number = id_ctrl.serial_number;
+                        }
+                        if diag.firmware_version.trim().is_empty() && !id_ctrl.firmware_version.is_empty() {
+                            diag.firmware_version = id_ctrl.firmware_version;
+                        }
+                    }
+
+                    match handle.read_smart_data() {
+                        Ok(nvme_data) => {
+                            nvme_ok = true;
+                            info!(
+                                "Successfully read NVMe SMART data for disk {}",
+                                diag.disk_number
+                            );
+                            apply_native_nvme_data(diag, &nvme_data);
+                            add_note_unique(
+                                diag,
+                                "NVMe SMART data read directly via Windows Storage Query API.",
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to read NVMe SMART data for disk {}: {}",
+                                diag.disk_number, e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to open NVMe disk {} for SMART reading: {}",
+                        diag.disk_number, e
+                    );
+                }
+            }
+        }
+
+        if nvme_ok {
+            continue;
+        }
+
+        match smart::DiskHandle::open(diag.disk_number) {
+            Ok(handle) => match handle.read_smart_data() {
+                Ok(smart_data) => {
+                    info!("Successfully read ATA SMART data for disk {}", diag.disk_number);
+
+                    if diag.temperature_c.is_none() {
+                        diag.temperature_c = smart_data.temperature.map(|t| t as f64);
+                    }
+                    if diag.power_on_hours.is_none() {
+                        diag.power_on_hours = smart_data.power_on_hours;
+                    }
+                    if diag.power_cycle_count.is_none() {
+                        diag.power_cycle_count = smart_data.power_cycle_count;
+                    }
+
+                    let attrs: Vec<SmartAttribute> = smart_data
+                        .attributes
+                        .iter()
+                        .map(|attr| SmartAttribute {
+                            id: attr.id as u32,
+                            name: get_smart_attribute_name(attr.id),
+                            current: Some(attr.current as u32),
+                            worst: Some(attr.worst as u32),
+                            threshold: Some(attr.threshold as u32),
+                            raw: Some(attr.raw),
+                            raw_hex: format!("0x{:012X}", attr.raw),
+                        })
+                        .collect();
+
+                    if !attrs.is_empty() && attrs.len() >= diag.smart_attributes.len() {
+                        diag.smart_attributes = attrs;
+                        diag.ata_smart_available = true;
+                        diag.smart_supported = true;
+                        diag.smart_data_source =
+                            merge_smart_source(&diag.smart_data_source, "ATA_NATIVE_IOCTL");
+                        add_note_unique(
+                            diag,
+                            "ATA SMART data read directly via Windows IOCTL (native API).",
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to read ATA SMART data for disk {}: {}",
+                        diag.disk_number, e
+                    );
+                }
+            },
+            Err(e) => {
+                warn!(
+                    "Failed to open disk {} for ATA SMART reading: {}",
+                    diag.disk_number, e
+                );
+            }
+        }
+    }
+}
+
+fn is_nvme_diag(diag: &DiskDiagnostics) -> bool {
+    let haystack = format!(
+        "{} {} {} {} {}",
+        diag.transport_type,
+        diag.interface_type,
+        diag.bus_type,
+        diag.model,
+        diag.pnp_device_id
+    )
+    .to_ascii_uppercase();
+
+    haystack.contains("NVME") || haystack.contains("NVMEXPRESS")
+}
+
+fn apply_native_nvme_data(diag: &mut DiskDiagnostics, nvme_data: &smart::nvme::NVMeSmartData) {
+    diag.transport_type = "NVMe".to_string();
+    diag.interface_type = "NVMExpress".to_string();
+    diag.media_type = "SSD".to_string();
+
+    if diag.temperature_c.is_none() && nvme_data.temperature > -1000 {
+        diag.temperature_c = Some(nvme_data.temperature as f64);
+    }
+    if diag.power_on_hours.is_none() {
+        diag.power_on_hours = Some(u128_to_u64(nvme_data.power_on_hours));
+    }
+    if diag.power_cycle_count.is_none() {
+        diag.power_cycle_count = Some(u128_to_u64(nvme_data.power_cycles));
+    }
+    if diag.percentage_used.is_none() {
+        diag.percentage_used = Some((nvme_data.percentage_used as f64).clamp(0.0, 100.0));
+    }
+    if diag.host_reads_total.is_none() {
+        let units = u128_to_u64(nvme_data.data_units_read);
+        let cmds = u128_to_u64(nvme_data.host_read_commands);
+        diag.host_reads_total = Some(if units > 0 { units } else { cmds });
+    }
+    if diag.host_writes_total.is_none() {
+        let units = u128_to_u64(nvme_data.data_units_written);
+        let cmds = u128_to_u64(nvme_data.host_write_commands);
+        diag.host_writes_total = Some(if units > 0 { units } else { cmds });
+    }
+    if diag.read_errors_total.is_none() {
+        diag.read_errors_total = Some(u128_to_u64(nvme_data.media_errors));
+    }
+    if diag.write_errors_total.is_none() {
+        diag.write_errors_total = Some(u128_to_u64(nvme_data.num_err_log_entries));
+    }
+
+    diag.smart_supported = true;
+    diag.smart_enabled = true;
+    diag.smart_data_source = merge_smart_source(&diag.smart_data_source, "NVME_NATIVE_IOCTL");
+
+    let mut rel = match std::mem::take(&mut diag.reliability) {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.CriticalWarning",
+        Some(Value::from(nvme_data.critical_warning)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.AvailableSpare",
+        Some(Value::from(nvme_data.available_spare)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.AvailableSpareThreshold",
+        Some(Value::from(nvme_data.available_spare_threshold)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.PercentageUsed",
+        Some(Value::from(nvme_data.percentage_used)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.DataUnitsRead",
+        Some(u128_to_json_value(nvme_data.data_units_read)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.DataUnitsWritten",
+        Some(u128_to_json_value(nvme_data.data_units_written)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.HostReadCommands",
+        Some(u128_to_json_value(nvme_data.host_read_commands)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.HostWriteCommands",
+        Some(u128_to_json_value(nvme_data.host_write_commands)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.ControllerBusyTime",
+        Some(u128_to_json_value(nvme_data.controller_busy_time)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.PowerCycles",
+        Some(u128_to_json_value(nvme_data.power_cycles)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.PowerOnHours",
+        Some(u128_to_json_value(nvme_data.power_on_hours)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.UnsafeShutdowns",
+        Some(u128_to_json_value(nvme_data.unsafe_shutdowns)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.MediaErrors",
+        Some(u128_to_json_value(nvme_data.media_errors)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.ErrorLogEntries",
+        Some(u128_to_json_value(nvme_data.num_err_log_entries)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.WarningTempTime",
+        Some(Value::from(nvme_data.warning_temp_time)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.CriticalTempTime",
+        Some(Value::from(nvme_data.critical_temp_time)),
+    );
+    insert_if_absent(
+        &mut rel,
+        "NvmeIoctl.TemperatureSensors",
+        Some(Value::Array(
+            nvme_data
+                .temp_sensors
+                .iter()
+                .map(|v| Value::from(*v))
+                .collect(),
+        )),
+    );
+
+    diag.reliability = Value::Object(rel);
+}
+
+fn u128_to_u64(value: u128) -> u64 {
+    value.min(u64::MAX as u128) as u64
+}
+
+fn u128_to_json_value(value: u128) -> Value {
+    if value <= u64::MAX as u128 {
+        Value::from(value as u64)
+    } else {
+        Value::String(value.to_string())
+    }
+}
+
+fn get_smart_attribute_name(id: u8) -> String {
+    match id {
+        1 => "Read Error Rate".to_string(),
+        2 => "Throughput Performance".to_string(),
+        3 => "Spin-Up Time".to_string(),
+        4 => "Start/Stop Count".to_string(),
+        5 => "Reallocated Sectors Count".to_string(),
+        7 => "Seek Error Rate".to_string(),
+        8 => "Seek Time Performance".to_string(),
+        9 => "Power-On Hours".to_string(),
+        10 => "Spin Retry Count".to_string(),
+        11 => "Calibration Retry Count".to_string(),
+        12 => "Power Cycle Count".to_string(),
+        170 => "Available Reserved Space".to_string(),
+        171 => "Program Fail Count".to_string(),
+        172 => "Erase Fail Count".to_string(),
+        173 => "Wear Leveling Count".to_string(),
+        174 => "Unexpected Power Loss Count".to_string(),
+        177 => "Wear Range Delta".to_string(),
+        179 => "Used Reserved Block Count Total".to_string(),
+        180 => "Unused Reserved Block Count Total".to_string(),
+        181 => "Program Fail Count Total".to_string(),
+        182 => "Erase Fail Count".to_string(),
+        183 => "Runtime Bad Block".to_string(),
+        184 => "End-to-End Error".to_string(),
+        187 => "Reported Uncorrectable Errors".to_string(),
+        188 => "Command Timeout".to_string(),
+        190 => "Airflow Temperature".to_string(),
+        191 => "G-Sense Error Rate".to_string(),
+        192 => "Power-Off Retract Count".to_string(),
+        193 => "Load/Unload Cycle Count".to_string(),
+        194 => "Temperature".to_string(),
+        195 => "Hardware ECC Recovered".to_string(),
+        196 => "Reallocation Event Count".to_string(),
+        197 => "Current Pending Sector Count".to_string(),
+        198 => "Offline Uncorrectable Sector Count".to_string(),
+        199 => "UltraDMA CRC Error Count".to_string(),
+        200 => "Write Error Rate".to_string(),
+        201 => "Soft Read Error Rate".to_string(),
+        202 => "Data Address Mark Errors".to_string(),
+        206 => "Flying Height".to_string(),
+        210 => "Vibration During Write".to_string(),
+        211 => "Vibration During Write Time".to_string(),
+        212 => "Shock During Write".to_string(),
+        220 => "Disk Shift".to_string(),
+        222 => "Loaded Hours".to_string(),
+        223 => "Load/Unload Retry Count".to_string(),
+        224 => "Load Friction".to_string(),
+        225 => "Load/Unload Cycle Count".to_string(),
+        226 => "Load-in Time".to_string(),
+        227 => "Torque Amplification Count".to_string(),
+        228 => "Power-Off Retract Cycle".to_string(),
+        230 => "Drive Life Protection Status".to_string(),
+        231 => "SSD Life Left".to_string(),
+        232 => "Available Reserved Space".to_string(),
+        233 => "Media Wearout Indicator".to_string(),
+        234 => "Average Erase Count".to_string(),
+        235 => "Good Block Count".to_string(),
+        241 => "Total LBAs Written".to_string(),
+        242 => "Total LBAs Read".to_string(),
+        243 => "Total LBAs Written Expanded".to_string(),
+        244 => "Total LBAs Read Expanded".to_string(),
+        245 => "NAND Writes (1GiB)".to_string(),
+        246 => "Total NAND Writes".to_string(),
+        247 => "Host Program NAND Pages Count".to_string(),
+        248 => "FTL Program NAND Pages Count".to_string(),
+        249 => "NAND Writes (1GiB)".to_string(),
+        250 => "Read Error Retry Rate".to_string(),
+        251 => "Minimum Spares Remaining".to_string(),
+        252 => "Newly Added Bad Flash Block".to_string(),
+        254 => "Free Fall Protection".to_string(),
+        _ => format!("Attribute {}", id),
+    }
 }
 
 fn enrich_with_smartctl(diagnostics: &mut [DiskDiagnostics]) {

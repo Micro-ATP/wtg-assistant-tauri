@@ -1,5 +1,11 @@
-use crate::Result;
+use crate::{AppError, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
+use serde_json::Value;
+#[cfg(target_os = "macos")]
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PartitionInfo {
@@ -105,6 +111,112 @@ fn parse_partition_info(v: &serde_json::Value) -> Option<PartitionInfo> {
         has_windows: parse_bool(&v["HasWindows"]),
         windows_name: v["WindowsName"].as_str().unwrap_or("").trim().to_string(),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn to_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn plist_to_json(value: &[u8]) -> Result<Value> {
+    let mut child = Command::new("plutil")
+        .args(["-convert", "json", "-o", "-", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(AppError::io)?;
+
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| AppError::SystemError("Failed to open plutil stdin".to_string()))?;
+    use std::io::Write as _;
+    stdin.write_all(value).map_err(AppError::io)?;
+
+    let output = child.wait_with_output().map_err(AppError::io)?;
+    if !output.status.success() {
+        return Err(AppError::DiskError(format!(
+            "Failed to parse plist output: {}",
+            to_text(&output.stderr)
+        )));
+    }
+
+    serde_json::from_slice(&output.stdout).map_err(AppError::from)
+}
+
+#[cfg(target_os = "macos")]
+fn diskutil_plist_json(args: &[&str]) -> Result<Value> {
+    let output = Command::new("diskutil")
+        .args(args)
+        .output()
+        .map_err(AppError::io)?;
+
+    if !output.status.success() {
+        let err = to_text(&output.stderr);
+        let out = to_text(&output.stdout);
+        let detail = if err.is_empty() { out } else { err };
+        return Err(AppError::DiskError(format!("diskutil failed: {}", detail)));
+    }
+
+    plist_to_json(&output.stdout)
+}
+
+#[cfg(target_os = "macos")]
+fn json_str(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn json_u64(value: &Value, key: &str) -> u64 {
+    value
+        .get(key)
+        .and_then(Value::as_u64)
+        .or_else(|| value.get(key).and_then(Value::as_f64).map(|n| n.max(0.0) as u64))
+        .unwrap_or(0)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_disk_number_from_any(value: &str) -> u32 {
+    let trimmed = value.trim();
+    let Some(pos) = trimmed.find("disk") else {
+        return 0;
+    };
+    let tail = &trimmed[pos + 4..];
+    let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<u32>().unwrap_or(0)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_media_type_macos(info: &Value) -> String {
+    if info
+        .get("SolidState")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return "SSD".to_string();
+    }
+
+    let bus = json_str(info, "BusProtocol");
+    if bus.eq_ignore_ascii_case("USB") {
+        return "USB".to_string();
+    }
+
+    let media_name = json_str(info, "MediaName").to_ascii_uppercase();
+    if media_name.contains("SSD") || media_name.contains("NVME") {
+        return "SSD".to_string();
+    }
+    if media_name.contains("HDD") {
+        return "HDD".to_string();
+    }
+
+    "Unknown".to_string()
 }
 
 /// List mounted partitions with drive letters (Windows only)
@@ -287,10 +399,106 @@ Write-Output "__WTGA_JSON__$__json"
         Ok(res)
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        Err(crate::AppError::Unsupported(
-            "Partition listing only implemented on Windows".into(),
+        let list_json = diskutil_plist_json(&["list", "-plist"])?;
+        let disks = list_json
+            .get("AllDisksAndPartitions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| AppError::DiskError("Invalid diskutil list output".to_string()))?;
+
+        let mut result = Vec::new();
+
+        for disk in disks {
+            let disk_id = json_str(disk, "DeviceIdentifier");
+            if !disk_id.starts_with("disk") {
+                continue;
+            }
+            let disk_node = format!("/dev/{}", disk_id);
+            let disk_info = match diskutil_plist_json(&["info", "-plist", &disk_node]) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let protocol = {
+                let bus = json_str(&disk_info, "BusProtocol");
+                if bus.is_empty() {
+                    "Unknown".to_string()
+                } else {
+                    bus
+                }
+            };
+            let media_type = parse_media_type_macos(&disk_info);
+            let disk_number = parse_disk_number_from_any(&disk_id);
+
+            let parts = match disk.get("Partitions").and_then(Value::as_array) {
+                Some(v) => v,
+                None => continue,
+            };
+
+            for part in parts {
+                let partition_id = json_str(part, "DeviceIdentifier");
+                if partition_id.is_empty() {
+                    continue;
+                }
+                let mount_point = json_str(part, "MountPoint");
+                if mount_point.is_empty() {
+                    continue;
+                }
+
+                let windows_dir = Path::new(&mount_point).join("Windows");
+                if !windows_dir.exists() {
+                    continue;
+                }
+
+                let partition_node = format!("/dev/{}", partition_id);
+                let part_info = match diskutil_plist_json(&["info", "-plist", &partition_node]) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let fs_type = json_str(&part_info, "FilesystemType");
+                let size = {
+                    let total = json_u64(&part_info, "TotalSize");
+                    if total > 0 {
+                        total
+                    } else {
+                        json_u64(&part_info, "Size")
+                    }
+                };
+                let free = json_u64(&part_info, "VolumeFreeSpace");
+                let label = {
+                    let volume_name = json_str(&part_info, "VolumeName");
+                    if volume_name.is_empty() {
+                        json_str(&part_info, "MediaName")
+                    } else {
+                        volume_name
+                    }
+                };
+
+                result.push(PartitionInfo {
+                    drive_letter: partition_id,
+                    label,
+                    filesystem: fs_type,
+                    size,
+                    free,
+                    disk_number,
+                    protocol: protocol.clone(),
+                    media_type: media_type.clone(),
+                    has_windows: true,
+                    windows_name: "Windows".to_string(),
+                });
+            }
+        }
+
+        result.sort_by(|a, b| a.drive_letter.cmp(&b.drive_letter));
+        Ok(result)
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        Err(AppError::Unsupported(
+            "Partition listing only implemented on Windows and macOS".into(),
         ))
     }
 }

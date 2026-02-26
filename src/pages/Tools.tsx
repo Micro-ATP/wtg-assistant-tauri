@@ -258,7 +258,11 @@ function wrapHardwareText(input: string, maxLen = 56): string[] {
 
 function partitionOptionLabel(partition: PartitionInfo): string {
   const osName = partition.windows_name?.trim() || 'Windows'
-  return `${partition.drive_letter}:\\  ${osName}`
+  const target = partition.drive_letter?.trim() || ''
+  const isDriveLetter = /^[A-Za-z]$/.test(target)
+  const targetLabel = isDriveLetter ? `${target.toUpperCase()}:\\` : target
+  const fs = partition.filesystem?.trim() ? ` · ${partition.filesystem}` : ''
+  return `${targetLabel}  ${osName}${fs}`
 }
 
 function classifyInstallLogPrefix(stream: string, line: string): string {
@@ -337,6 +341,7 @@ function ToolsPage() {
   const terminalRef = useRef<HTMLDivElement | null>(null)
   const installStartLockRef = useRef(false)
   const isMacPlatform = typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent)
+  const bootFirmwareLockedToUefi = isMacPlatform
 
   // Keep tool order stable: newer tools should be appended at the end.
   const cards: Array<{ key: ToolKey; title: string; description: string }> = [
@@ -530,6 +535,9 @@ function ToolsPage() {
       const windowsOnly = list.filter((p) => p.has_windows)
       const sorted = [...windowsOnly].sort((a, b) => a.drive_letter.localeCompare(b.drive_letter))
       setPartitions(sorted)
+      if (bootFirmwareLockedToUefi) {
+        setBootFirmware('uefi')
+      }
       if (!sorted.length) {
         setBootTarget('')
         return
@@ -1021,7 +1029,11 @@ function ToolsPage() {
           <div className="tool-panel-header">
             <div>
               <h2>{tr('tools.bootRepairTitle', '引导修复')}</h2>
-              <p>{tr('tools.bootRepairSubtitle', '选择目标盘符后执行 bcdboot 与 bcdedit 修复流程。')}</p>
+              <p>
+                {bootFirmwareLockedToUefi
+                  ? tr('tools.bootRepairSubtitleMac', '选择目标 Windows 分区后执行 UEFI 引导修复流程。')
+                  : tr('tools.bootRepairSubtitle', '选择目标盘符后执行 bcdboot 与 bcdedit 修复流程。')}
+              </p>
             </div>
             <button className="btn-refresh" onClick={() => void loadPartitions()} disabled={partitionsLoading || bootRunning} type="button">
               {partitionsLoading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
@@ -1062,20 +1074,31 @@ function ToolsPage() {
                   <select
                     value={bootFirmware}
                     onChange={(event) => setBootFirmware(event.target.value as BootRepairFirmware)}
-                    disabled={bootRunning}
+                    disabled={bootRunning || bootFirmwareLockedToUefi}
                   >
-                    <option value="all">{tr('tools.bootRepairFirmwareAll', 'ALL（UEFI + BIOS）')}</option>
-                    <option value="uefi">{tr('tools.bootRepairFirmwareUefi', 'UEFI')}</option>
-                    <option value="bios">{tr('tools.bootRepairFirmwareBios', 'BIOS')}</option>
+                    {bootFirmwareLockedToUefi ? (
+                      <option value="uefi">{tr('tools.bootRepairFirmwareUefi', 'UEFI')}</option>
+                    ) : (
+                      <>
+                        <option value="all">{tr('tools.bootRepairFirmwareAll', 'ALL（UEFI + BIOS）')}</option>
+                        <option value="uefi">{tr('tools.bootRepairFirmwareUefi', 'UEFI')}</option>
+                        <option value="bios">{tr('tools.bootRepairFirmwareBios', 'BIOS')}</option>
+                      </>
+                    )}
                   </select>
                 </label>
               </div>
 
               <p className="tool-hint">
-                {tr(
-                  'tools.bootRepairHint',
-                  '目标分区需包含 Windows 目录，且程序需要管理员权限运行。',
-                )}
+                {bootFirmwareLockedToUefi
+                  ? tr(
+                      'tools.bootRepairHintMac',
+                      '目标分区需包含 Windows 目录，macOS 将请求管理员授权以挂载并修复 EFI 引导文件。',
+                    )
+                  : tr(
+                      'tools.bootRepairHint',
+                      '目标分区需包含 Windows 目录，且程序需要管理员权限运行。',
+                    )}
               </p>
 
               <div className="tool-actions">

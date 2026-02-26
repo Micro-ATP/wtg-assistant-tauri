@@ -9,6 +9,13 @@ import './Configure.css'
 
 type ToggleFeatureKey = Exclude<keyof ExtraFeatures, 'driver_path'>
 
+const MAC_UNSUPPORTED_FEATURES: ToggleFeatureKey[] = [
+  'install_dotnet35',
+  'fix_letter',
+  'wimboot',
+  'ntfs_uefi_support',
+]
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -194,6 +201,12 @@ function ConfigurePage() {
     },
   ]
 
+  const isFeatureDisabled = (item: { key: ToggleFeatureKey; disabled?: boolean }) => {
+    if (item.disabled) return true
+    if (isMacHost && MAC_UNSUPPORTED_FEATURES.includes(item.key)) return true
+    return false
+  }
+
   // When切换到UEFI模式，禁用“不重新分区/格式化”
   useEffect(() => {
     if (!isLegacyMode && extraFeatures.do_not_format) {
@@ -212,6 +225,21 @@ function ConfigurePage() {
       setBootMode('uefi_gpt')
     }
   }, [isMacHost, bootMode, setBootMode])
+
+  useEffect(() => {
+    if (!isMacHost) return
+    let dirty = false
+    const next = { ...extraFeatures }
+    for (const key of MAC_UNSUPPORTED_FEATURES) {
+      if (next[key]) {
+        next[key] = false
+        dirty = true
+      }
+    }
+    if (dirty) {
+      setExtraFeatures(next)
+    }
+  }, [isMacHost, extraFeatures, setExtraFeatures])
 
   const handleBrowseDriverPath = async () => {
     try {
@@ -486,13 +514,18 @@ function ConfigurePage() {
               <input
                 type="checkbox"
                 checked={extraFeatures[item.key]}
-                disabled={item.disabled}
+                disabled={isFeatureDisabled(item)}
                 onChange={() => handleToggleFeature(item.key)}
               />
-              <span className={item.disabled ? 'option-disabled' : ''}>{item.label}</span>
+              <span className={isFeatureDisabled(item) ? 'option-disabled' : ''}>{item.label}</span>
             </label>
           ))}
         </div>
+        {isMacHost ? (
+          <p className="field-hint">
+            {t('configure.macExtraFeatureHint') || 'macOS currently supports: SAN policy, Disable WinRE, Skip OOBE, Disable UASP, CompactOS and No Default Drive Letter.'}
+          </p>
+        ) : null}
 
         <div className="driver-path">
           <label>{t('configure.driverPath') || 'Driver folder (optional)'}</label>

@@ -6,6 +6,8 @@ pub mod progress;
 pub mod task_manager;
 
 use sysinfo::System;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 #[cfg(target_os = "windows")]
 use {
     serde::Deserialize,
@@ -61,7 +63,8 @@ pub fn get_cpu_model() -> String {
         let mut sys = System::new();
         sys.refresh_cpu();
         let brand = sys.global_cpu_info().brand().trim().to_string();
-        if brand.is_empty() {
+        let normalized = brand.replace(' ', "").to_ascii_lowercase();
+        if brand.is_empty() || normalized == "unknowncpu" || normalized == "unknown" {
             "Unknown CPU".to_string()
         } else {
             brand
@@ -195,7 +198,81 @@ fn get_cpu_model_detailed() -> Option<String> {
         .find(|s| !s.trim().is_empty())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn get_cpu_model_detailed() -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn run_command_text(cmd: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(cmd).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn get_cpu_model_detailed() -> Option<String> {
+    let candidates = [
+        run_command_text("sysctl", &["-n", "machdep.cpu.brand_string"]),
+        run_command_text("sysctl", &["-n", "machdep.cpu.brand"]),
+        run_command_text("sh", &["-lc", "system_profiler SPHardwareDataType -json 2>/dev/null"]),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        let trimmed = candidate.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.starts_with('{') {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                if let Some(item) = json
+                    .get("SPHardwareDataType")
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|arr| arr.first())
+                {
+                    let chip = item
+                        .get("chip_type")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if !chip.is_empty() {
+                        let norm = chip.replace(' ', "").to_ascii_lowercase();
+                        if norm != "unknowncpu" && norm != "unknown" {
+                            return Some(chip);
+                        }
+                    }
+
+                    let cpu = item
+                        .get("cpu_type")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if !cpu.is_empty() {
+                        let norm = cpu.replace(' ', "").to_ascii_lowercase();
+                        if norm != "unknowncpu" && norm != "unknown" {
+                            return Some(cpu);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        let norm = trimmed.replace(' ', "").to_ascii_lowercase();
+        if norm != "unknowncpu" && norm != "unknown" {
+            return Some(trimmed.to_string());
+        }
+    }
+
     None
 }

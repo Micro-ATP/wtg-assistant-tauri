@@ -70,7 +70,8 @@
     "driverPath": "驱动程序文件夹（可选）",
     "selectEdition": "选择 Windows 版本",
     "loadingImageInfo": "正在读取映像信息，请稍候...",
-    "macVhdUnsupported": "macOS 暂不支持 VHD/VHDX 部署模式。"
+    "macVhdUnsupported": "macOS 暂不支持 VHD/VHDX 部署模式。",
+    "macExtraFeatureHint": "macOS 当前支持：SAN 策略、禁用 WinRE、跳过 OOBE、禁用 UASP、CompactOS 与不分配默认盘符。"
   },
   "write": {
     "title": "写入",

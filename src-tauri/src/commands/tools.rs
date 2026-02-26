@@ -3,8 +3,14 @@ use crate::models::FirmwareType;
 use crate::services::{boot, diskpart};
 use crate::utils::command::CommandExecutor;
 use crate::{AppError, Result};
-use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
+use serde::Deserialize;
+use serde::Serialize;
+#[cfg(target_os = "macos")]
+use serde_json::Value;
 use std::collections::HashSet;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_DESC1, DXGI_ADAPTER_FLAG_SOFTWARE,
@@ -118,7 +124,6 @@ struct Win32NetworkAdapter {
     net_enabled: Option<bool>,
 }
 
-#[cfg(target_os = "windows")]
 fn dedup_keep_order(items: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -142,7 +147,6 @@ fn memory_type_name(code: u16) -> &'static str {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn parse_u64_text(value: Option<&str>) -> Option<u64> {
     let raw = value?.trim();
     if raw.is_empty() {
@@ -159,7 +163,6 @@ fn parse_u64_text(value: Option<&str>) -> Option<u64> {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn format_gb_from_bytes(bytes: u64) -> u64 {
     ((bytes as f64) / 1024_f64.powi(3)).round() as u64
 }
@@ -295,7 +298,6 @@ fn collect_gpus_via_dxgi() -> Vec<String> {
     dedup_keep_order(result)
 }
 
-#[cfg(target_os = "windows")]
 fn extract_json_value(output: &str) -> Option<serde_json::Value> {
     let trimmed = output.trim();
     if trimmed.is_empty() {
@@ -522,6 +524,338 @@ fn gather_hardware_overview_windows() -> Result<HardwareOverview> {
     })
 }
 
+#[cfg(target_os = "macos")]
+fn command_output_text(cmd: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(cmd).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        None
+    } else {
+        Some(stdout)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn command_output_json(cmd: &str, args: &[&str]) -> Option<Value> {
+    let output = command_output_text(cmd, args)?;
+    extract_json_value(&output)
+}
+
+#[cfg(target_os = "macos")]
+fn value_str(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn value_u64(value: &Value, key: &str) -> Option<u64> {
+    value
+        .get(key)
+        .and_then(Value::as_u64)
+        .or_else(|| value.get(key).and_then(Value::as_f64).map(|n| n.max(0.0) as u64))
+}
+
+#[cfg(target_os = "macos")]
+fn collect_named_values_recursive(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(arr) => {
+            for item in arr {
+                collect_named_values_recursive(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(name) = map.get("_name").and_then(Value::as_str) {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    out.push(trimmed.to_string());
+                }
+            }
+            for child in map.values() {
+                collect_named_values_recursive(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn get_first_hardware_item() -> Option<Value> {
+    let json = command_output_json("system_profiler", &["SPHardwareDataType", "-json"])?;
+    json.get("SPHardwareDataType")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first().cloned())
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_processors() -> Vec<String> {
+    let hardware = get_first_hardware_item();
+    let mut candidates = Vec::new();
+
+    if let Some(hw) = hardware.as_ref() {
+        candidates.push(value_str(hw, "chip_type"));
+        candidates.push(value_str(hw, "cpu_type"));
+        candidates.push(value_str(hw, "boot_rom_version"));
+    }
+
+    candidates.push(
+        command_output_text("sysctl", &["-n", "machdep.cpu.brand_string"]).unwrap_or_default(),
+    );
+
+    let mut name = candidates
+        .into_iter()
+        .find(|s| !s.trim().is_empty() && !s.eq_ignore_ascii_case("unknowncpu"))
+        .unwrap_or_else(|| crate::utils::get_cpu_model());
+
+    if name.trim().is_empty() || name.eq_ignore_ascii_case("unknowncpu") {
+        name = "Unknown CPU".to_string();
+    }
+
+    let physical = command_output_text("sysctl", &["-n", "hw.physicalcpu"])
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    let logical = command_output_text("sysctl", &["-n", "hw.logicalcpu"])
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+
+    if physical > 0 && logical > 0 && logical >= physical {
+        vec![format!("{name} ({physical}C/{logical}T)")]
+    } else if physical > 0 {
+        vec![format!("{name} ({physical}C)")]
+    } else {
+        vec![name]
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_motherboard() -> String {
+    if let Some(hw) = get_first_hardware_item() {
+        let machine_name = value_str(&hw, "machine_name");
+        let machine_model = value_str(&hw, "machine_model");
+        let model_identifier = value_str(&hw, "model_identifier");
+        let chip = value_str(&hw, "chip_type");
+
+        let mut parts = Vec::new();
+        if !machine_name.is_empty() {
+            parts.push(machine_name);
+        }
+        if !machine_model.is_empty() {
+            parts.push(machine_model);
+        } else if !model_identifier.is_empty() {
+            parts.push(model_identifier);
+        }
+        if !chip.is_empty() {
+            parts.push(chip);
+        }
+        if !parts.is_empty() {
+            return parts.join(" ");
+        }
+    }
+
+    command_output_text("sysctl", &["-n", "hw.model"]).unwrap_or_else(|| "Unknown".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_memory_summary() -> String {
+    if let Some(hw) = get_first_hardware_item() {
+        let text = value_str(&hw, "memory");
+        if !text.is_empty() {
+            if value_str(&hw, "chip_type").to_ascii_lowercase().contains("apple") {
+                return format!("{text} Unified Memory");
+            }
+            return text;
+        }
+    }
+
+    let total = crate::utils::get_total_memory();
+    let gb = format_gb_from_bytes(total);
+    if gb > 0 {
+        format!("{gb}GB RAM")
+    } else {
+        "Unknown".to_string()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_displays() -> (Vec<String>, Vec<String>) {
+    let mut graphics = Vec::new();
+    let mut monitors = Vec::new();
+
+    let Some(json) = command_output_json("system_profiler", &["SPDisplaysDataType", "-json"])
+    else {
+        return (graphics, monitors);
+    };
+
+    let Some(items) = json.get("SPDisplaysDataType").and_then(Value::as_array) else {
+        return (graphics, monitors);
+    };
+
+    for item in items {
+        let model = value_str(item, "sppci_model");
+        let fallback_name = value_str(item, "_name");
+        let name = if !model.is_empty() {
+            model
+        } else {
+            fallback_name
+        };
+        if !name.is_empty() {
+            let mut vram = value_str(item, "spdisplays_vram");
+            if vram.is_empty() {
+                vram = value_str(item, "spdisplays_vram_shared");
+            }
+            if !vram.is_empty() {
+                graphics.push(format!("{name} ({vram})"));
+            } else {
+                graphics.push(name);
+            }
+        }
+
+        if let Some(ndrvs) = item.get("spdisplays_ndrvs").and_then(Value::as_array) {
+            for display in ndrvs {
+                let display_name = value_str(display, "_name");
+                if display_name.is_empty() {
+                    continue;
+                }
+                let resolution = value_str(display, "_spdisplays_resolution");
+                if resolution.is_empty() {
+                    monitors.push(display_name);
+                } else {
+                    monitors.push(format!("{display_name} ({resolution})"));
+                }
+            }
+        }
+    }
+
+    (dedup_keep_order(graphics), dedup_keep_order(monitors))
+}
+
+#[cfg(target_os = "macos")]
+fn parse_storage_size_bytes(item: &Value) -> u64 {
+    value_u64(item, "size_in_bytes")
+        .or_else(|| value_u64(item, "spsize_bytes"))
+        .or_else(|| {
+            value_str(item, "size")
+                .chars()
+                .filter(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse::<u64>()
+                .ok()
+        })
+        .unwrap_or(0)
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_disks() -> Vec<String> {
+    let Some(json) = command_output_json("system_profiler", &["SPStorageDataType", "-json"]) else {
+        return Vec::new();
+    };
+    let Some(items) = json.get("SPStorageDataType").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for item in items {
+        let name = value_str(item, "_name");
+        if name.is_empty() {
+            continue;
+        }
+        let size_bytes = parse_storage_size_bytes(item);
+        if size_bytes > 0 {
+            out.push(format!("{name} ({}GB)", format_gb_from_bytes(size_bytes)));
+        } else {
+            out.push(name);
+        }
+    }
+    dedup_keep_order(out)
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_audio_devices() -> Vec<String> {
+    let Some(json) = command_output_json("system_profiler", &["SPAudioDataType", "-json"]) else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    collect_named_values_recursive(&json, &mut values);
+
+    dedup_keep_order(
+        values
+            .into_iter()
+            .filter(|v| {
+                let lower = v.to_ascii_lowercase();
+                !v.trim().is_empty()
+                    && !lower.contains("audio:")
+                    && !lower.contains("devices")
+                    && !lower.eq("audio")
+            })
+            .collect(),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_network_adapters() -> Vec<String> {
+    let Some(json) = command_output_json("system_profiler", &["SPNetworkDataType", "-json"]) else {
+        return Vec::new();
+    };
+    let Some(items) = json.get("SPNetworkDataType").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for item in items {
+        let name = value_str(item, "_name");
+        if name.is_empty() {
+            continue;
+        }
+        let interface = value_str(item, "interface");
+        if interface.is_empty() {
+            out.push(name);
+        } else {
+            out.push(format!("{name} ({interface})"));
+        }
+    }
+    dedup_keep_order(out)
+}
+
+#[cfg(target_os = "macos")]
+fn gather_hardware_overview_macos() -> HardwareOverview {
+    let processors = dedup_keep_order(build_macos_processors());
+    let motherboard = build_macos_motherboard();
+    let memory_summary = build_macos_memory_summary();
+    let (graphics, monitors) = build_macos_displays();
+    let disks = build_macos_disks();
+    let audio_devices = build_macos_audio_devices();
+    let network_adapters = build_macos_network_adapters();
+
+    HardwareOverview {
+        processors: if processors.is_empty() {
+            vec!["Unknown CPU".to_string()]
+        } else {
+            processors
+        },
+        motherboard: if motherboard.trim().is_empty() {
+            "Unknown".to_string()
+        } else {
+            motherboard
+        },
+        memory_summary: if memory_summary.trim().is_empty() {
+            "Unknown".to_string()
+        } else {
+            memory_summary
+        },
+        graphics,
+        monitors,
+        disks,
+        audio_devices,
+        network_adapters,
+    }
+}
+
 fn normalize_drive_root(input: &str) -> Result<String> {
     let trimmed = input.trim().trim_end_matches('\\').trim_end_matches('/');
     if trimmed.is_empty() {
@@ -679,7 +1013,24 @@ pub async fn repair_boot(target_disk: String, firmware: String) -> Result<String
         ))
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let fw_type = parse_firmware(&firmware)?;
+        match fw_type {
+            FirmwareType::UEFI => {
+                tokio::task::spawn_blocking(move || {
+                    crate::services::write_macos::repair_boot_uefi_for_target(&target_disk)
+                })
+                .await
+                .map_err(|e| AppError::SystemError(e.to_string()))?
+            }
+            FirmwareType::BIOS | FirmwareType::ALL => Err(AppError::Unsupported(
+                "macOS boot repair currently supports UEFI mode only".to_string(),
+            )),
+        }
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let _ = (target_disk, firmware);
         Err(AppError::Unsupported(
@@ -697,7 +1048,14 @@ pub async fn get_hardware_overview() -> Result<HardwareOverview> {
             .map_err(|e| AppError::SystemError(e.to_string()))?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        Ok(tokio::task::spawn_blocking(gather_hardware_overview_macos)
+            .await
+            .map_err(|e| AppError::SystemError(e.to_string()))?)
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         Err(AppError::Unsupported(
             "Hardware overview is currently implemented on Windows only".to_string(),

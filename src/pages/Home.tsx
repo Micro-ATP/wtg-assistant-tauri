@@ -19,6 +19,16 @@ function formatMemoryCapacity(bytes: number): string {
   return `${gib.toFixed(1)} GB`
 }
 
+function normalizeCpuModelLabel(raw: string): string {
+  const value = (raw || '').trim()
+  if (!value) return '--'
+  const normalized = value.replace(/\s+/g, '').toLowerCase()
+  if (normalized === 'unknowncpu' || normalized === 'unknown' || normalized === 'n/a') {
+    return '--'
+  }
+  return value
+}
+
 function HomePage() {
   const { t } = useTranslation()
   const { systemInfo, setCurrentPage } = useAppStore()
@@ -61,7 +71,7 @@ function HomePage() {
     ? [
         { key: 'version', label: t('home.version'), value: systemInfo.version },
         { key: 'arch', label: t('home.architecture'), value: systemInfo.arch },
-        { key: 'cpu', label: t('home.cpuModel'), value: systemInfo.cpu_model },
+        { key: 'cpu', label: t('home.cpuModel'), value: normalizeCpuModelLabel(systemInfo.cpu_model) },
         { key: 'memory', label: t('home.memoryCapacity'), value: formatMemoryCapacity(systemInfo.total_memory) },
       ].filter((row) => String(row.label ?? '').trim() && String(row.value ?? '').trim())
     : []

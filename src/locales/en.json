@@ -66,7 +66,8 @@
     "repartition": "Repartition Disk",
     "selectEdition": "Select Windows Edition",
     "loadingImageInfo": "Reading image information, please wait...",
-    "macVhdUnsupported": "VHD/VHDX apply mode is currently unavailable on macOS."
+    "macVhdUnsupported": "VHD/VHDX apply mode is currently unavailable on macOS.",
+    "macExtraFeatureHint": "macOS currently supports SAN policy, Disable WinRE, Skip OOBE, Disable UASP, CompactOS, and No Default Drive Letter."
   },
   "write": {
     "title": "Write",

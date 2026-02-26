@@ -143,9 +143,7 @@ pub async fn list_disk_diagnostics() -> Result<Vec<DiskDiagnostics>> {
     }
     #[cfg(target_os = "macos")]
     {
-        Err(crate::AppError::Unsupported(
-            "Disk diagnostics is not implemented on macOS yet".to_string(),
-        ))
+        crate::platform::macos::list_disk_diagnostics().await
     }
     #[cfg(target_os = "linux")]
     {

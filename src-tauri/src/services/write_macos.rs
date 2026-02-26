@@ -448,6 +448,30 @@ fn parse_disk_id(input: &str) -> Option<String> {
     Some(format!("disk{}", suffix))
 }
 
+fn parse_partition_id(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    let without_dev = trimmed.strip_prefix("/dev/").unwrap_or(trimmed);
+    if !without_dev.starts_with("disk") {
+        return None;
+    }
+
+    let split_at = without_dev.rfind('s')?;
+    if split_at <= 4 {
+        return None;
+    }
+    let disk_suffix = &without_dev[4..split_at];
+    let part_suffix = &without_dev[split_at + 1..];
+    if disk_suffix.is_empty()
+        || part_suffix.is_empty()
+        || !disk_suffix.chars().all(|c| c.is_ascii_digit())
+        || !part_suffix.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+
+    Some(format!("disk{}s{}", disk_suffix, part_suffix))
+}
+
 fn resolve_disk_id(config: &WtgConfig) -> Result<String> {
     resolve_disk_id_from_target_disk(&config.target_disk)
 }
@@ -1134,6 +1158,181 @@ fn verify_uefi_boot_files(efi_mount: &Path) -> Result<()> {
     Ok(())
 }
 
+fn list_partitions_for_disk(disk_id: &str) -> Result<Vec<Value>> {
+    let list_json = diskutil_json(&["list", "-plist"])?;
+    let Some(disks) = list_json
+        .get("AllDisksAndPartitions")
+        .and_then(Value::as_array)
+    else {
+        return Err(AppError::DiskError(
+            "Invalid diskutil list output while resolving partitions".to_string(),
+        ));
+    };
+
+    let Some(disk) = disks
+        .iter()
+        .find(|d| json_str(d, "DeviceIdentifier") == disk_id)
+    else {
+        return Err(AppError::DeviceNotFound(format!(
+            "Target disk not found: {}",
+            disk_id
+        )));
+    };
+
+    let mut parts: Vec<Value> = disk
+        .get("Partitions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    parts.sort_by_key(|p| {
+        let pid = json_str(p, "DeviceIdentifier");
+        partition_index_from_id(&pid)
+    });
+
+    Ok(parts)
+}
+
+fn partition_looks_efi(part: &Value, info: &Value) -> bool {
+    let content = json_str(part, "Content").to_ascii_uppercase();
+    if content.contains("EFI") {
+        return true;
+    }
+
+    let volume = json_str(part, "VolumeName").to_ascii_uppercase();
+    if volume == "EFI" {
+        return true;
+    }
+
+    let fs = json_str(info, "FilesystemType").to_ascii_lowercase();
+    if fs.contains("ms-dos") || fs.contains("fat") || fs.contains("efi") {
+        let size = json_u64(info, "TotalSize")
+            .or_else(|| json_u64(info, "Size"))
+            .unwrap_or(0);
+        if size > 0 && size <= 2 * 1024 * 1024 * 1024 {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn resolve_system_partition_id_from_hint(target_hint: &str) -> Result<String> {
+    if let Some(pid) = parse_partition_id(target_hint) {
+        return Ok(pid);
+    }
+
+    let trimmed = target_hint.trim();
+    if !trimmed.is_empty() && (trimmed.starts_with('/') || trimmed.starts_with("Volume")) {
+        if let Ok(info) = diskutil_json(&["info", "-plist", trimmed]) {
+            let device_identifier = json_str(&info, "DeviceIdentifier");
+            if let Some(pid) = parse_partition_id(&device_identifier) {
+                return Ok(pid);
+            }
+            if let Some(disk_id) = parse_disk_id(&device_identifier) {
+                let parts = list_partitions_for_disk(&disk_id)?;
+                if let Some(first_data) = parts
+                    .iter()
+                    .find(|p| parse_partition_id(&json_str(p, "DeviceIdentifier")).is_some())
+                {
+                    return Ok(json_str(first_data, "DeviceIdentifier"));
+                }
+            }
+        }
+    }
+
+    if let Some(disk_id) = parse_disk_id(target_hint) {
+        let parts = list_partitions_for_disk(&disk_id)?;
+        for part in &parts {
+            let pid = json_str(part, "DeviceIdentifier");
+            let mount_point = json_str(part, "MountPoint");
+            if pid.is_empty() || mount_point.is_empty() {
+                continue;
+            }
+            if Path::new(&mount_point).join("Windows").exists() {
+                return Ok(pid);
+            }
+        }
+
+        if let Some(first_data) = parts.iter().find(|p| {
+            let pid = json_str(p, "DeviceIdentifier");
+            let Ok(info) = get_partition_info_json(&pid) else {
+                return false;
+            };
+            !partition_looks_efi(p, &info)
+        }) {
+            return Ok(json_str(first_data, "DeviceIdentifier"));
+        }
+    }
+
+    Err(AppError::InvalidParameter(format!(
+        "Cannot resolve system partition from target '{}'",
+        target_hint
+    )))
+}
+
+fn resolve_efi_partition_id_for_system(system_partition_id: &str) -> Result<String> {
+    let part_info = get_partition_info_json(system_partition_id)?;
+    let parent_disk = json_str(&part_info, "ParentWholeDisk");
+    if parent_disk.is_empty() {
+        return Err(AppError::DiskError(format!(
+            "Cannot determine parent disk for partition {}",
+            system_partition_id
+        )));
+    }
+
+    let parts = list_partitions_for_disk(&parent_disk)?;
+    for part in &parts {
+        let pid = json_str(part, "DeviceIdentifier");
+        if pid.is_empty() || pid == system_partition_id {
+            continue;
+        }
+        let info = match get_partition_info_json(&pid) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if partition_looks_efi(part, &info) {
+            return Ok(pid);
+        }
+    }
+
+    let fallback = format!("{}s1", parent_disk);
+    if fallback != system_partition_id && get_partition_info_json(&fallback).is_ok() {
+        return Ok(fallback);
+    }
+
+    Err(AppError::DiskError(format!(
+        "Cannot find EFI partition on {}",
+        parent_disk
+    )))
+}
+
+pub fn repair_boot_uefi_for_target(target_hint: &str) -> Result<String> {
+    let system_partition_id = resolve_system_partition_id_from_hint(target_hint)?;
+    let efi_partition_id = resolve_efi_partition_id_for_system(&system_partition_id)?;
+
+    let system_mount = mount_partition_and_get_mount_point(&system_partition_id)?;
+    let efi_mount = mount_partition_and_get_mount_point(&efi_partition_id)?;
+
+    if !system_mount.join("Windows").exists() {
+        return Err(AppError::DiskError(format!(
+            "Target partition {} does not contain a Windows directory",
+            system_partition_id
+        )));
+    }
+
+    stage_uefi_boot_payload(&system_mount, &efi_mount)?;
+    repair_uefi_bcd_store(&system_mount, &efi_mount)?;
+    verify_uefi_boot_files(&efi_mount)?;
+
+    Ok(format!(
+        "Boot repair completed (UEFI). System: /dev/{} -> {} ; EFI: /dev/{} -> {}",
+        system_partition_id,
+        system_mount.display(),
+        efi_partition_id,
+        efi_mount.display()
+    ))
+}
+
 fn verify_applied_system_files(system_mount: &Path) -> Result<()> {
     let windows_dir = system_mount.join("Windows");
     let system32_dir = windows_dir.join("System32");
@@ -1144,6 +1343,184 @@ fn verify_applied_system_files(system_mount: &Path) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+#[derive(Debug, Default)]
+struct MacExtraFeatureOutcome {
+    applied: Vec<&'static str>,
+    unsupported: Vec<&'static str>,
+    notes: Vec<String>,
+}
+
+fn write_text_file(path: &Path, content: &str) -> Result<()> {
+    fs::write(path, content).map_err(AppError::io)
+}
+
+fn ensure_setup_complete_invokes_wtga_extra(scripts_dir: &Path) -> Result<()> {
+    let setup_complete_path = scripts_dir.join("SetupComplete.cmd");
+    let call_line = r#"call "%SystemRoot%\Setup\Scripts\WTGA-ExtraFeatures.cmd""#;
+    let lower_match = "wtga-extrafeatures.cmd";
+
+    let mut content = if setup_complete_path.exists() {
+        fs::read_to_string(&setup_complete_path).map_err(AppError::io)?
+    } else {
+        "@echo off\r\n".to_string()
+    };
+
+    if !content.to_ascii_lowercase().contains(lower_match) {
+        if !content.ends_with('\n') {
+            content.push_str("\r\n");
+        }
+        content.push_str(call_line);
+        content.push_str("\r\n");
+    }
+
+    if !content.to_ascii_lowercase().contains("exit /b 0") {
+        content.push_str("exit /b 0\r\n");
+    }
+
+    write_text_file(&setup_complete_path, &content)
+}
+
+fn write_skip_oobe_unattend_if_needed(system_mount: &Path) -> Result<()> {
+    let sysprep_dir = system_mount.join("Windows").join("System32").join("Sysprep");
+    fs::create_dir_all(&sysprep_dir).map_err(AppError::io)?;
+    let unattend_path = sysprep_dir.join("unattend.xml");
+
+    if unattend_path.exists() {
+        return Ok(());
+    }
+
+    // Keep this minimal and architecture-agnostic by including both amd64 and arm64 blocks.
+    let unattend = r#"<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+    </component>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+    </component>
+  </settings>
+</unattend>
+"#;
+
+    write_text_file(&unattend_path, unattend)
+}
+
+fn apply_macos_extra_features(config: &WtgConfig, system_mount: &Path) -> Result<MacExtraFeatureOutcome> {
+    let mut outcome = MacExtraFeatureOutcome::default();
+    let features = &config.extra_features;
+
+    let windows_dir = system_mount.join("Windows");
+    if !windows_dir.exists() {
+        return Err(AppError::ImageError(format!(
+            "Cannot apply extra features: Windows directory missing at {}",
+            windows_dir.display()
+        )));
+    }
+
+    let scripts_dir = windows_dir.join("Setup").join("Scripts");
+    fs::create_dir_all(&scripts_dir).map_err(AppError::io)?;
+
+    let mut script_lines = vec![
+        "@echo off".to_string(),
+        "setlocal enableextensions".to_string(),
+        "set WTGA_LOG=%SystemRoot%\\Setup\\Scripts\\WTGA-ExtraFeatures.log".to_string(),
+        "echo [WTGA] Extra features script started %DATE% %TIME%>>\"%WTGA_LOG%\"".to_string(),
+    ];
+
+    if features.block_local_disk {
+        outcome.applied.push("block_local_disk");
+        script_lines.push("echo [WTGA] Applying SAN policy (block local disks)>>\"%WTGA_LOG%\"".to_string());
+        script_lines.push("reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\partmgr\\Parameters\" /v SanPolicy /t REG_DWORD /d 4 /f >>\"%WTGA_LOG%\" 2>&1".to_string());
+        script_lines.push("(echo san policy=4) > \"%SystemRoot%\\Setup\\Scripts\\wtga-san.txt\"".to_string());
+        script_lines.push("diskpart /s \"%SystemRoot%\\Setup\\Scripts\\wtga-san.txt\" >>\"%WTGA_LOG%\" 2>&1".to_string());
+    }
+
+    if features.disable_winre {
+        outcome.applied.push("disable_winre");
+        script_lines.push("echo [WTGA] Disabling WinRE>>\"%WTGA_LOG%\"".to_string());
+        script_lines.push("reagentc /disable >>\"%WTGA_LOG%\" 2>&1".to_string());
+    }
+
+    if features.skip_oobe {
+        outcome.applied.push("skip_oobe");
+        write_skip_oobe_unattend_if_needed(system_mount)?;
+        script_lines.push("echo [WTGA] Applying skip OOBE registry flags>>\"%WTGA_LOG%\"".to_string());
+        script_lines.push("reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE\" /v SkipMachineOOBE /t REG_DWORD /d 1 /f >>\"%WTGA_LOG%\" 2>&1".to_string());
+        script_lines.push("reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE\" /v SkipUserOOBE /t REG_DWORD /d 1 /f >>\"%WTGA_LOG%\" 2>&1".to_string());
+        script_lines.push("reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE\" /v PrivacyConsentStatus /t REG_DWORD /d 1 /f >>\"%WTGA_LOG%\" 2>&1".to_string());
+    }
+
+    if features.disable_uasp {
+        outcome.applied.push("disable_uasp");
+        script_lines.push("echo [WTGA] Disabling UASP (uaspstor)>>\"%WTGA_LOG%\"".to_string());
+        script_lines.push("reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\uaspstor\" /v Start /t REG_DWORD /d 4 /f >>\"%WTGA_LOG%\" 2>&1".to_string());
+    }
+
+    if features.no_default_drive_letter {
+        outcome.applied.push("no_default_drive_letter");
+        script_lines.push("echo [WTGA] Setting no default drive letter policy>>\"%WTGA_LOG%\"".to_string());
+        script_lines.push("mountvol /N >>\"%WTGA_LOG%\" 2>&1".to_string());
+        script_lines.push("(echo select volume %SystemDrive% & echo attributes volume set nodefaultdriveletter) > \"%SystemRoot%\\Setup\\Scripts\\wtga-nodefaultdriveletter.txt\"".to_string());
+        script_lines.push("diskpart /s \"%SystemRoot%\\Setup\\Scripts\\wtga-nodefaultdriveletter.txt\" >>\"%WTGA_LOG%\" 2>&1".to_string());
+    }
+
+    if features.compact_os {
+        outcome.applied.push("compact_os");
+        script_lines.push("echo [WTGA] Enabling CompactOS>>\"%WTGA_LOG%\"".to_string());
+        script_lines.push("compact.exe /CompactOS:always >>\"%WTGA_LOG%\" 2>&1".to_string());
+    }
+
+    if features.install_dotnet35 {
+        outcome.unsupported.push("install_dotnet35");
+    }
+    if features.fix_letter {
+        outcome.unsupported.push("fix_letter");
+    }
+    if features.wimboot {
+        outcome.unsupported.push("wimboot");
+    }
+    if features.ntfs_uefi_support {
+        // UEFI flow on macOS already uses a dedicated FAT EFI partition; this flag is a no-op here.
+        outcome.notes.push("ntfs_uefi_support is ignored on macOS UEFI write path".to_string());
+    }
+    if features.enable_bitlocker {
+        outcome.unsupported.push("enable_bitlocker");
+    }
+    if features.driver_path.is_some() {
+        outcome.unsupported.push("driver_path");
+    }
+
+    script_lines.push("echo [WTGA] Extra features script finished %DATE% %TIME%>>\"%WTGA_LOG%\"".to_string());
+    script_lines.push("endlocal".to_string());
+    script_lines.push("exit /b 0".to_string());
+
+    if outcome.applied.is_empty() {
+        return Ok(outcome);
+    }
+
+    let extra_script_path = scripts_dir.join("WTGA-ExtraFeatures.cmd");
+    let script_text = format!("{}\r\n", script_lines.join("\r\n"));
+    write_text_file(&extra_script_path, &script_text)?;
+    ensure_setup_complete_invokes_wtga_extra(&scripts_dir)?;
+
+    Ok(outcome)
 }
 
 fn prepare_target_disk(config: &WtgConfig, disk_id: &str) -> Result<PreparedTargetDisk> {
@@ -1353,6 +1730,14 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
 
     PROGRESS_REPORTER.report_status(
         &task_id,
+        72.0,
+        "Applying extra features",
+        "applyingextras",
+    );
+    let extra_outcome = apply_macos_extra_features(config, &system_mount)?;
+
+    PROGRESS_REPORTER.report_status(
+        &task_id,
         82.0,
         "Staging UEFI boot files",
         "writingbootfiles",
@@ -1382,18 +1767,47 @@ pub fn execute_write(config: &WtgConfig, app_files_path: &str) -> Result<WritePr
         system_mount.display(),
         efi_mount_path.display()
     );
+    if !extra_outcome.applied.is_empty() {
+        info!(
+            "macOS extra features applied: {}",
+            extra_outcome.applied.join(", ")
+        );
+    }
+    if !extra_outcome.unsupported.is_empty() {
+        warn!(
+            "macOS extra features not supported yet: {}",
+            extra_outcome.unsupported.join(", ")
+        );
+    }
+    for note in &extra_outcome.notes {
+        info!("macOS extra features note: {}", note);
+    }
 
     PROGRESS_REPORTER.report_status(&task_id, 100.0, "Write completed", "completed");
+
+    let mut message = format!(
+        "WTG image applied to NTFS system partition {} and UEFI boot files staged at {}.",
+        system_mount.display(),
+        efi_mount_path.display()
+    );
+    if !extra_outcome.applied.is_empty() {
+        message.push_str(&format!(
+            " Applied extra features: {}.",
+            extra_outcome.applied.join(", ")
+        ));
+    }
+    if !extra_outcome.unsupported.is_empty() {
+        message.push_str(&format!(
+            " Not yet supported on macOS: {}.",
+            extra_outcome.unsupported.join(", ")
+        ));
+    }
 
     Ok(WriteProgress {
         task_id,
         status: WriteStatus::Completed,
         progress: 100.0,
-        message: format!(
-            "WTG image applied to NTFS system partition {} and UEFI boot files staged at {}.",
-            system_mount.display(),
-            efi_mount_path.display()
-        ),
+        message,
         speed: 0.0,
         elapsed_seconds: elapsed,
         estimated_remaining_seconds: 0,

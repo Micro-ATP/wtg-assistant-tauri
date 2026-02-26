@@ -136,6 +136,13 @@ export interface SystemInfo {
   cpu_count: number
 }
 
+export interface MacosAdminSessionStatus {
+  supported: boolean
+  authorized: boolean
+  authorized_at_unix?: number | null
+  last_error?: string | null
+}
+
 export interface BenchmarkResult {
   write_seq: number
   write_4k: number

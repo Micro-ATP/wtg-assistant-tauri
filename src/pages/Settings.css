@@ -28,6 +28,10 @@
   padding: 12px 16px;
 }
 
+.settings-card.disabled {
+  opacity: 0.6;
+}
+
 .settings-card-icon {
   width: 40px;
   height: 40px;
@@ -59,6 +63,50 @@
   font-size: 13px;
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+.settings-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.status-pill.ok {
+  border-color: #84d19b;
+  background: #eaf8ef;
+  color: #0a7d2c;
+}
+
+.settings-btn {
+  border: 1px solid var(--color-border-default);
+  background: var(--color-surface-default);
+  color: var(--color-text-primary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-btn:hover:not(:disabled) {
+  background: var(--color-background-secondary);
+}
+
+.settings-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .settings-section-title {
@@ -178,6 +226,11 @@
   .settings-select {
     width: 100%;
     min-width: 0;
+  }
+
+  .settings-card-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 

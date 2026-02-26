@@ -261,6 +261,18 @@ function partitionOptionLabel(partition: PartitionInfo): string {
   return `${partition.drive_letter}:\\  ${osName}`
 }
 
+function classifyInstallLogPrefix(stream: string, line: string): string {
+  const text = (line || '').trim()
+  if (stream === 'stdout') return '[out]'
+  if (stream !== 'stderr') return '[sys]'
+
+  // Homebrew prints some normal progress/warnings via stderr.
+  if (/^warning:/i.test(text)) return '[warn]'
+  if (/^error:/i.test(text) || /^fatal:/i.test(text) || /failed/i.test(text)) return '[err]'
+  if (/^==>/.test(text) || /^✔︎/.test(text) || /^==/.test(text)) return '[out]'
+  return '[out]'
+}
+
 function macosPluginDescriptionKey(pluginId: string): string {
   switch (pluginId) {
     case 'homebrew':
@@ -667,7 +679,7 @@ function ToolsPage() {
         const payload = event.payload
         const stream = payload.stream || 'system'
         const phase = payload.phase || ''
-        const prefix = stream === 'stdout' ? '[out]' : stream === 'stderr' ? '[err]' : '[sys]'
+        const prefix = classifyInstallLogPrefix(stream, payload.line || '')
         appendInstallLog(`${prefix} ${payload.line}`)
 
         if (phase === 'started') {

@@ -5,6 +5,7 @@
 //! - staged file write to target volume
 
 use crate::models::{BootMode, ImageInfo, WriteProgress, WriteStatus, WtgConfig};
+use crate::utils::macos_admin;
 use crate::utils::progress::PROGRESS_REPORTER;
 use crate::{AppError, Result};
 use serde_json::Value;
@@ -288,29 +289,6 @@ fn shell_escape_single_quotes(raw: &str) -> String {
     raw.replace('\'', "'\"'\"'")
 }
 
-fn run_admin_shell(script: &str) -> Result<()> {
-    let escaped = script.replace('\\', "\\\\").replace('"', "\\\"");
-    let apple_script = format!(
-        "do shell script \"{}\" with administrator privileges",
-        escaped
-    );
-    let output = Command::new("osascript")
-        .args(["-e", &apple_script])
-        .output()
-        .map_err(AppError::io)?;
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let err = to_text(&output.stderr);
-    let out = to_text(&output.stdout);
-    let detail = if err.is_empty() { out } else { err };
-    Err(AppError::DiskError(format!(
-        "Administrator command failed: {}",
-        detail
-    )))
-}
-
 fn plist_to_json(value: &[u8]) -> Result<Value> {
     let mut child = Command::new("plutil")
         .args(["-convert", "json", "-o", "-", "-"])
@@ -504,7 +482,7 @@ fn run_ntfs_mount_script_as_admin() -> Result<()> {
         "bash '{}'",
         shell_escape_single_quotes(script.to_string_lossy().as_ref())
     );
-    run_admin_shell(&command)
+    macos_admin::run_shell_with_auto_privilege(&command)
 }
 
 fn partition_scheme_for_boot_mode(mode: &BootMode) -> &'static str {
@@ -517,22 +495,13 @@ fn partition_scheme_for_boot_mode(mode: &BootMode) -> &'static str {
 fn prepare_target_disk(config: &WtgConfig, disk_id: &str) -> Result<()> {
     let scheme = partition_scheme_for_boot_mode(&config.boot_mode);
     let node = format!("/dev/{}", disk_id);
-    let args = ["eraseDisk", "ExFAT", "WTGA", scheme, &node];
-
-    let output = Command::new("diskutil")
-        .args(args)
-        .output()
-        .map_err(AppError::io)?;
-
-    if !output.status.success() {
-        let err = to_text(&output.stderr);
-        let out = to_text(&output.stdout);
+    let command = format!("diskutil eraseDisk ExFAT WTGA {} {}", scheme, node);
+    if let Err(e) = macos_admin::run_shell_with_auto_privilege(&command) {
         warn!(
-            "diskutil eraseDisk failed without admin privileges (disk={}): {} {}",
-            disk_id, err, out
+            "diskutil eraseDisk failed on /dev/{} after auto-privilege retry: {}",
+            disk_id, e
         );
-        let command = format!("diskutil eraseDisk ExFAT WTGA {} {}", scheme, node);
-        run_admin_shell(&command)?;
+        return Err(e);
     }
 
     // Let Disk Arbitration settle before querying partitions.

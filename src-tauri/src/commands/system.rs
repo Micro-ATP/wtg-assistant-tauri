@@ -1,5 +1,6 @@
 use crate::{AppError, Result};
 use serde::{Deserialize, Serialize};
+use crate::utils::macos_admin::MacosAdminSessionStatus;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SystemInfo {
@@ -61,4 +62,14 @@ pub async fn open_logs_directory() -> Result<String> {
     }
 
     Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn get_macos_admin_session_status() -> Result<MacosAdminSessionStatus> {
+    crate::utils::macos_admin::get_macos_admin_session_status()
+}
+
+#[tauri::command]
+pub async fn authorize_macos_admin_session() -> Result<MacosAdminSessionStatus> {
+    crate::utils::macos_admin::authorize_macos_admin_session()
 }

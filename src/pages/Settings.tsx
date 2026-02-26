@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-shell'
 import { useTheme } from '../hooks/useTheme'
 import { useAppStore } from '../services/store'
 import { systemApi } from '../services/api'
+import type { MacosAdminSessionStatus } from '../types'
 import { SunIcon, GlobeIcon, CogIcon, CheckIcon, LinkOutIcon, HeartIcon, ChevronDownIcon, SpinnerIcon, RefreshIcon, FolderIcon } from '../components/Icons'
 import './Settings.css'
 
@@ -60,7 +61,7 @@ function compareVersions(aRaw: string, bRaw: string): number | null {
 
 function SettingsPage() {
   const { t, i18n } = useTranslation()
-  const { language, setLanguage } = useAppStore()
+  const { language, setLanguage, systemInfo } = useAppStore()
   const { theme, setTheme } = useTheme()
   const [aboutExpanded, setAboutExpanded] = useState(true)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
@@ -68,6 +69,11 @@ function SettingsPage() {
   const [updateState, setUpdateState] = useState<'latest' | 'update' | 'beta' | 'error'>('latest')
   const [updateMessage, setUpdateMessage] = useState<string>(t('settingsPage.checkingUpdate') || 'Checking for updates...')
   const [logsDir, setLogsDir] = useState<string>('')
+  const [macosAdminStatus, setMacosAdminStatus] = useState<MacosAdminSessionStatus | null>(null)
+  const [macosAdminLoading, setMacosAdminLoading] = useState(false)
+  const [macosAdminAuthorizing, setMacosAdminAuthorizing] = useState(false)
+  const [macosAdminError, setMacosAdminError] = useState<string | null>(null)
+  const isMacHost = (systemInfo?.os || '').toLowerCase() === 'macos'
 
   const currentVersion = useMemo(() => t('common.version') || 'V0.0.5-Alpha', [t])
 
@@ -195,6 +201,51 @@ function SettingsPage() {
     }
   }, [])
 
+  const loadMacosAdminStatus = useCallback(async () => {
+    if (!isMacHost) {
+      setMacosAdminStatus(null)
+      setMacosAdminError(null)
+      return
+    }
+    try {
+      setMacosAdminLoading(true)
+      setMacosAdminError(null)
+      const status = await systemApi.getMacosAdminSessionStatus()
+      setMacosAdminStatus(status)
+    } catch (error) {
+      setMacosAdminError(error instanceof Error ? error.message : String(error))
+      setMacosAdminStatus(null)
+    } finally {
+      setMacosAdminLoading(false)
+    }
+  }, [isMacHost])
+
+  useEffect(() => {
+    void loadMacosAdminStatus()
+  }, [loadMacosAdminStatus])
+
+  const handleAuthorizeMacosAdmin = async () => {
+    if (!isMacHost || macosAdminAuthorizing) return
+    try {
+      setMacosAdminAuthorizing(true)
+      setMacosAdminError(null)
+      const status = await systemApi.authorizeMacosAdminSession()
+      setMacosAdminStatus(status)
+    } catch (error) {
+      setMacosAdminError(error instanceof Error ? error.message : String(error))
+      await loadMacosAdminStatus()
+    } finally {
+      setMacosAdminAuthorizing(false)
+    }
+  }
+
+  const macosAdminStatusLabel = useMemo(() => {
+    if (!isMacHost) return t('settingsPage.macosAdminStatusUnavailable') || '当前非 macOS'
+    if (macosAdminLoading) return t('settingsPage.checkingUpdate') || '正在检查...'
+    if (macosAdminStatus?.authorized) return t('settingsPage.macosAdminStatusAuthorized') || '已授权'
+    return t('settingsPage.macosAdminStatusUnauthorized') || '未授权'
+  }, [isMacHost, macosAdminLoading, macosAdminStatus?.authorized, t])
+
   const handleUpdateAction = async () => {
     if (isCheckingUpdate) return
     if (updateState === 'update' && latestTag) {
@@ -262,6 +313,33 @@ function SettingsPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className={`settings-card ${!isMacHost ? 'disabled' : ''}`}>
+          <div className="settings-card-icon">
+            <CogIcon size={20} />
+          </div>
+          <div className="settings-card-main">
+            <div className="settings-card-title">{t('settingsPage.macosAdminTitle') || 'macOS 管理员权限'}</div>
+            <div className="settings-card-sub">
+              {macosAdminError || (t('settingsPage.macosAdminDesc') || '用于手动重新触发系统管理员授权弹窗。')}
+            </div>
+          </div>
+          <div className="settings-card-actions">
+            <span className={`status-pill ${isMacHost && macosAdminStatus?.authorized ? 'ok' : ''}`}>
+              {macosAdminStatusLabel}
+            </span>
+            <button
+              className="settings-btn"
+              type="button"
+              onClick={() => void handleAuthorizeMacosAdmin()}
+              disabled={!isMacHost || macosAdminAuthorizing || macosAdminLoading}
+            >
+              {macosAdminAuthorizing
+                ? (t('settingsPage.macosAdminAuthorizing') || '请求中...')
+                : (t('settingsPage.macosAdminAuthorizeBtn') || '立即授权')}
+            </button>
+          </div>
         </div>
       </section>
 

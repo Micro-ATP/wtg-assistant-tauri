@@ -48,6 +48,35 @@
   color: var(--color-text-secondary);
 }
 
+.macos-admin-modal h2 {
+  color: var(--color-primary-brand);
+}
+
+.macos-admin-modal .safety-modal-actions .btn-danger {
+  background: var(--color-primary-brand);
+  border-color: color-mix(in srgb, var(--color-primary-brand) 78%, #000 22%);
+}
+
+.macos-admin-modal .safety-modal-actions .btn-danger:hover:not(:disabled) {
+  filter: brightness(0.94);
+  background: var(--color-primary-brand);
+}
+
+.safety-modal-note {
+  margin-top: 8px !important;
+  font-size: var(--font-size-small);
+}
+
+.safety-modal-error {
+  margin-top: 12px;
+  border: 1px solid #e3a7ab;
+  border-radius: var(--radius-small);
+  background: #fff1f2;
+  color: #9f1239;
+  padding: 8px 10px;
+  font-size: var(--font-size-small);
+}
+
 .safety-modal-actions {
   margin-top: 20px;
   display: flex;

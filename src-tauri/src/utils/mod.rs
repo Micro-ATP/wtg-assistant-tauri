@@ -1,5 +1,6 @@
 pub mod command;
 pub mod log;
+pub mod macos_admin;
 pub mod output_capture;
 pub mod progress;
 pub mod task_manager;

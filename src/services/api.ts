@@ -10,6 +10,7 @@ import type {
   PartitionInfo,
   BootRepairFirmware,
   HardwareOverview,
+  MacosAdminSessionStatus,
   MacosPluginItem,
   MacosPluginInstallStatus,
 } from '@/types'
@@ -105,6 +106,26 @@ export const systemApi = {
       return path
     } catch (error) {
       console.error('Failed to open logs directory:', error)
+      throw error
+    }
+  },
+
+  getMacosAdminSessionStatus: async (): Promise<MacosAdminSessionStatus> => {
+    try {
+      const status = await invoke<MacosAdminSessionStatus>('get_macos_admin_session_status')
+      return status
+    } catch (error) {
+      console.error('Failed to get macOS admin session status:', error)
+      throw error
+    }
+  },
+
+  authorizeMacosAdminSession: async (): Promise<MacosAdminSessionStatus> => {
+    try {
+      const status = await invoke<MacosAdminSessionStatus>('authorize_macos_admin_session')
+      return status
+    } catch (error) {
+      console.error('Failed to authorize macOS admin session:', error)
       throw error
     }
   },

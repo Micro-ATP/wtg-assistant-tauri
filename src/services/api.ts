@@ -273,4 +273,14 @@ export const toolsApi = {
       throw error
     }
   },
+
+  startMacosNtfsRemount: async (): Promise<string> => {
+    try {
+      const result = await invoke<string>('start_macos_ntfs_remount')
+      return result
+    } catch (error) {
+      console.error('Failed to start macOS NTFS remount:', error)
+      throw error
+    }
+  },
 }

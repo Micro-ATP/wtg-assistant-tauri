@@ -333,6 +333,7 @@ function ToolsPage() {
   const [macosInstallActivePluginId, setMacosInstallActivePluginId] = useState('')
   const [macosInstallMessage, setMacosInstallMessage] = useState<string | null>(null)
   const [macosInstallLogs, setMacosInstallLogs] = useState<string[]>([])
+  const [showNtfsRemountConfirmModal, setShowNtfsRemountConfirmModal] = useState(false)
   const terminalRef = useRef<HTMLDivElement | null>(null)
   const installStartLockRef = useRef(false)
   const isMacPlatform = typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent)
@@ -651,6 +652,39 @@ function ToolsPage() {
     } finally {
       installStartLockRef.current = false
     }
+  }
+
+  const handleStartMacosNtfsRemount = async () => {
+    if (!isMacPlatform || macosInstallRunning || macosInstallStarting) return
+    if (installStartLockRef.current) return
+    installStartLockRef.current = true
+    try {
+      setMacosPluginsError(null)
+      setMacosInstallMessage(null)
+      setMacosInstallStarting(true)
+      setMacosInstallRunning(true)
+      setMacosInstallActivePluginId('ntfs-remount')
+      appendInstallLog('$ remount NTFS as writable')
+      const message = await toolsApi.startMacosNtfsRemount()
+      setMacosInstallMessage(message)
+    } catch (err) {
+      setMacosInstallRunning(false)
+      setMacosInstallStarting(false)
+      setMacosInstallActivePluginId('')
+      setMacosPluginsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      installStartLockRef.current = false
+    }
+  }
+
+  const handleRequestMacosNtfsRemount = () => {
+    if (!isMacPlatform || macosInstallRunning || macosInstallStarting) return
+    setShowNtfsRemountConfirmModal(true)
+  }
+
+  const handleConfirmMacosNtfsRemount = async () => {
+    setShowNtfsRemountConfirmModal(false)
+    await handleStartMacosNtfsRemount()
   }
 
   useEffect(() => {
@@ -1129,12 +1163,23 @@ function ToolsPage() {
                 ? tr('tools.pluginInstalling', '安装中...')
                 : tr('tools.pluginInstallStart', '开始安装')}
             </button>
+            <button
+              className="btn-secondary"
+              onClick={handleRequestMacosNtfsRemount}
+              disabled={!isMacPlatform || macosInstallRunning || macosInstallStarting}
+              type="button"
+            >
+              {tr('tools.ntfsRemountStart', '重挂载 NTFS 为可写')}
+            </button>
             {(macosInstallRunning || macosInstallStarting) && macosInstallActivePluginId ? (
               <span className="tool-hint">
                 {tr('tools.pluginInstallingNow', '当前安装')}: {macosInstallActivePluginId}
               </span>
             ) : null}
           </div>
+          <p className="tool-hint">
+            {tr('tools.ntfsRemountWarningInline', '执行前请确认没有正在进行的 NTFS 文件复制或读取任务。该操作会卸载并重挂载所有 NTFS 卷，可能中断当前传输。')}
+          </p>
 
           <div className="plugin-terminal-wrap">
             <div className="plugin-terminal-header">{tr('tools.pluginTerminal', '终端输出')}</div>
@@ -1149,6 +1194,36 @@ function ToolsPage() {
             </div>
           </div>
         </section>
+      ) : null}
+
+      {showNtfsRemountConfirmModal && isMacPlatform ? (
+        <div className="safety-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ntfs-remount-confirm-title">
+          <div className="safety-modal">
+            <h2 id="ntfs-remount-confirm-title">{tr('tools.ntfsRemountConfirmTitle', '重挂载 NTFS 前确认')}</h2>
+            <p>{tr('tools.ntfsRemountConfirmBody', '该操作会先卸载当前所有已挂载的 NTFS 卷，再重新挂载为可写模式。')}</p>
+            <p className="safety-modal-note">
+              {tr('tools.ntfsRemountConfirmNote', '请先确认没有正在进行的文件复制、读取或占用操作，否则这些任务会被中断。')}
+            </p>
+            <div className="safety-modal-actions">
+              <button
+                className="btn-danger"
+                onClick={() => void handleConfirmMacosNtfsRemount()}
+                disabled={macosInstallRunning || macosInstallStarting}
+                type="button"
+              >
+                {tr('tools.ntfsRemountConfirmContinue', '我已检查，继续重挂载')}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setShowNtfsRemountConfirmModal(false)}
+                disabled={macosInstallRunning || macosInstallStarting}
+                type="button"
+              >
+                {t('safety.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {activeTool === 'capacityCalc' ? (

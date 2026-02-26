@@ -142,6 +142,13 @@ export const CogIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor'
   </svg>
 )
 
+export const LockIcon: React.FC<IconProps> = ({ size = 20, color = 'currentColor', className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="4" y="11" width="16" height="10" rx="2" ry="2" />
+    <path d="M8 11V8a4 4 0 1 1 8 0v3" />
+  </svg>
+)
+
 export const PaletteIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
     <path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a3 3 0 0 1 0-6h.5a6.5 6.5 0 0 0 0-13z" />

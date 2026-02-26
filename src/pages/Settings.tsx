@@ -5,7 +5,7 @@ import { useTheme } from '../hooks/useTheme'
 import { useAppStore } from '../services/store'
 import { systemApi } from '../services/api'
 import type { MacosAdminSessionStatus } from '../types'
-import { SunIcon, GlobeIcon, CogIcon, CheckIcon, LinkOutIcon, HeartIcon, ChevronDownIcon, SpinnerIcon, RefreshIcon, FolderIcon } from '../components/Icons'
+import { SunIcon, GlobeIcon, CogIcon, LockIcon, CheckIcon, LinkOutIcon, HeartIcon, ChevronDownIcon, SpinnerIcon, RefreshIcon, FolderIcon } from '../components/Icons'
 import './Settings.css'
 
 type ThemeValue = 'light' | 'dark' | 'system'
@@ -317,7 +317,7 @@ function SettingsPage() {
 
         <div className={`settings-card ${!isMacHost ? 'disabled' : ''}`}>
           <div className="settings-card-icon">
-            <CogIcon size={20} />
+            <LockIcon size={20} />
           </div>
           <div className="settings-card-main">
             <div className="settings-card-title">{t('settingsPage.macosAdminTitle') || 'macOS 管理员权限'}</div>

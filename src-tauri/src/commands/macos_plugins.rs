@@ -1,7 +1,9 @@
 use crate::{AppError, Result};
+use crate::utils::macos_admin;
 use lazy_static::lazy_static;
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::Mutex;
@@ -307,6 +309,16 @@ fn run_install_command_with_streaming(
     Ok(status.code().unwrap_or(-1))
 }
 
+fn find_ntfs_mount_script() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("useable_software/ntfs-mount.sh"));
+        candidates.push(cwd.join("../useable_software/ntfs-mount.sh"));
+    }
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../useable_software/ntfs-mount.sh"));
+    candidates.into_iter().find(|p| p.exists())
+}
+
 fn set_install_running(plugin_id: Option<&str>, running: bool) -> Result<()> {
     let mut state = INSTALL_STATE
         .lock()
@@ -425,6 +437,135 @@ pub async fn start_macos_plugin_install(
         let _ = (plugin_id, app_handle);
         Err(AppError::Unsupported(
             "macOS plugin installer is only available on macOS".to_string(),
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn start_macos_ntfs_remount(app_handle: tauri::AppHandle) -> Result<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let plugin = PluginSpec {
+            id: "ntfs-remount",
+            name: "NTFS Remount",
+            description: "Re-mount NTFS volumes as writable via ntfs-mount.sh",
+            install_cmd: "",
+        };
+
+        {
+            let state = INSTALL_STATE
+                .lock()
+                .map_err(|_| AppError::SystemError("Installer state lock poisoned".to_string()))?;
+            if state.running {
+                return Err(AppError::SystemError(
+                    "Another plugin install task is currently running".to_string(),
+                ));
+            }
+        }
+
+        set_install_running(Some(plugin.id), true)?;
+
+        let app = app_handle.clone();
+        thread::spawn(move || {
+            emit_install_event(
+                &app,
+                &plugin,
+                "started",
+                "system",
+                "Starting NTFS remount task".to_string(),
+                None,
+                None,
+            );
+            emit_install_event(
+                &app,
+                &plugin,
+                "line",
+                "stderr",
+                "Warning: This operation unmounts and remounts all mounted NTFS volumes. Ongoing copy/read tasks may be interrupted."
+                    .to_string(),
+                None,
+                None,
+            );
+
+            let result = (|| -> Result<()> {
+                let script = find_ntfs_mount_script().ok_or_else(|| {
+                    AppError::SystemError("Cannot find useable_software/ntfs-mount.sh".to_string())
+                })?;
+                let command = format!(
+                    "export PATH='/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH'; bash '{}'",
+                    shell_escape_single_quotes(script.to_string_lossy().as_ref())
+                );
+                let output = macos_admin::run_privileged_macos(&command)?;
+                if output.trim().is_empty() {
+                    emit_install_event(
+                        &app,
+                        &plugin,
+                        "line",
+                        "system",
+                        "NTFS remount command completed with no output".to_string(),
+                        None,
+                        None,
+                    );
+                } else {
+                    for line in output.lines() {
+                        emit_install_event(
+                            &app,
+                            &plugin,
+                            "line",
+                            "stdout",
+                            line.to_string(),
+                            None,
+                            None,
+                        );
+                    }
+                }
+                Ok(())
+            })();
+
+            let _ = set_install_running(None, false);
+            match result {
+                Ok(()) => {
+                    emit_install_event(
+                        &app,
+                        &plugin,
+                        "finished",
+                        "system",
+                        "NTFS remount completed".to_string(),
+                        Some(0),
+                        Some(true),
+                    );
+                }
+                Err(e) => {
+                    emit_install_event(
+                        &app,
+                        &plugin,
+                        "line",
+                        "stderr",
+                        e.to_string(),
+                        None,
+                        None,
+                    );
+                    emit_install_event(
+                        &app,
+                        &plugin,
+                        "finished",
+                        "system",
+                        format!("NTFS remount failed: {}", e),
+                        None,
+                        Some(false),
+                    );
+                }
+            }
+        });
+
+        Ok("NTFS remount task started".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app_handle;
+        Err(AppError::Unsupported(
+            "NTFS remount helper is only available on macOS".to_string(),
         ))
     }
 }

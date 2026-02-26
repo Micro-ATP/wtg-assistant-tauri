@@ -479,7 +479,7 @@ fn run_ntfs_mount_script_as_admin() -> Result<()> {
     })?;
 
     let command = format!(
-        "bash '{}'",
+        "export PATH='/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH'; bash '{}'",
         shell_escape_single_quotes(script.to_string_lossy().as_ref())
     );
     macos_admin::run_shell_with_auto_privilege(&command)

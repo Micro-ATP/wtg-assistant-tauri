@@ -22,7 +22,7 @@ Windows To Go Assistant helps you deploy a Windows image to a USB drive and crea
 
 ## Before You Start
 
-- Current version: `V0.0.1-Alpha`
+- Current version: `V0.0.3-Alpha`
 - The app is still in Alpha stage.
 - Write operations can repartition/format disks and permanently erase data.
 - Always make a full backup before using this tool.
@@ -31,8 +31,8 @@ Windows To Go Assistant helps you deploy a Windows image to a USB drive and crea
 
 - Deploy ISO/WIM/ESD/VHD/VHDX images to a target USB disk
 - Configure boot mode and apply mode
-- Run USB benchmarks: quick, multi-thread, full-disk write, extreme
-- Provide a standalone Tools tab (expanding over time)
+- Run USB benchmarks: quick, multi-thread, full-disk write, extreme, scenario tests
+- Use the `Tools` tab for SMART disk info, boot repair, and capacity conversion
 
 ## Download and Install
 

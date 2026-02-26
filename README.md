@@ -1,100 +1,110 @@
 # Windows To Go 助手 (WTGA)
 
-Windows To Go 助手用于把 Windows 映像部署到 USB 磁盘，制作可启动的便携 Windows 系统。
+<div align="center">
 
-[English README](./README-en.md)
+**一个面向普通用户的 Windows To Go 图形化工具。**
 
-## 快速入口
+</div>
 
-- 下载最新版: [Releases](../../releases)
-- 提交问题: [GitHub Issues](../../issues)
-- 社区交流: [Luobotou 论坛](https://bbs.luobotou.org/)
-- 许可证: [LICENSE](./LICENSE)
+<p align="center">
+  <a href="https://github.com/Micro-ATP/wtg-assistant-tauri/releases/latest"><img src="https://img.shields.io/github/v/release/Micro-ATP/wtg-assistant-tauri?style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/Micro-ATP/wtg-assistant-tauri/releases"><img src="https://img.shields.io/github/downloads/Micro-ATP/wtg-assistant-tauri/total?style=flat-square" alt="Downloads"></a>
+  <a href="https://github.com/Micro-ATP/wtg-assistant-tauri/issues"><img src="https://img.shields.io/github/issues/Micro-ATP/wtg-assistant-tauri?style=flat-square" alt="Issues"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/Micro-ATP/wtg-assistant-tauri?style=flat-square" alt="License"></a>
+</p>
 
-## 内容导航
+[English README](./README-en.md) | **中文**
 
-- [使用前必读](#使用前必读)
-- [下载安装](#下载安装)
-- [三分钟上手](#三分钟上手)
-- [基准测试怎么用](#基准测试怎么用)
-- [常见问题](#常见问题)
-- [反馈与支持](#反馈与支持)
+---
+
+WTGA 用于把 Windows 映像部署到 USB 磁盘，制作可启动的便携 Windows 系统。  
+当前版本：`V0.0.3-Alpha`
+
+## 快速导航
+
+- 下载发布版: [Releases](https://github.com/Micro-ATP/wtg-assistant-tauri/releases)
+- 提交问题: [GitHub Issues](https://github.com/Micro-ATP/wtg-assistant-tauri/issues)
+- 社区交流: [Luobotou 论坛](https://bbs.luobotou.org/forum-88-1.html)
+- 赞助支持: [爱发电](https://ifdian.net/a/micro-atp)
 
 ## 使用前必读
 
-- 当前版本: `V0.0.1-Alpha`
-- 软件仍处于 Alpha 阶段，稳定性未完全验证。
-- 写入操作会修改分区和文件系统，可能导致目标盘数据不可恢复。
-- 请务必提前完整备份，不要直接操作含重要数据的磁盘。
+- 软件处于 Alpha 阶段，稳定性与兼容性仍在持续验证。
+- 写入/修复会改动分区与引导，可能造成数据不可恢复。
+- 请先完整备份，再进行任何写入或修复操作。
+- 建议全程管理员权限运行，避免权限导致的失败。
 
-## 这款软件能做什么
+## 界面一览
 
-- 部署 ISO/WIM/ESD/VHD/VHDX 到目标 USB 磁盘
-- 配置启动模式与部署方式
-- 进行 USB 基准测试: 快速、多线程、全盘写入、极限模式
-- 提供独立的小工具分栏（持续扩展）
+![WTGA](./public/images/banner.png)
 
-## 下载安装
+## 功能模块
 
-1. 打开 [Releases](../../releases) 页面。
-2. 按系统架构下载安装包:
-   - Windows x64: 选择 `x86_64` 包
-   - Windows ARM64: 选择 `aarch64` 包
-3. 安装或运行时请务必使用管理员权限，否则大多数功能无法使用。
-
-如果安装时遇到系统拦截，先看 [常见问题](#常见问题) 的第 3 条。
+| 模块 | 用途 |
+| --- | --- |
+| 首页 | 查看系统状态与快捷入口 |
+| 配置 | 选择镜像、目标盘与部署参数 |
+| 写入 | 执行 WTG 写入流程（含风险确认） |
+| 基准测试 | 顺序/4K/场景等性能测试与图表 |
+| 小工具 | 磁盘信息（SMART）、引导修复、容量换算 |
+| 设置 | 主题、语言、版本检查、错误反馈 |
 
 ## 三分钟上手
 
-1. 打开软件，阅读并确认风险提示。
-2. 进入 `配置` 页面，选择 Windows 映像。
-3. 选择目标磁盘，确认盘符和容量无误。
-4. 按需调整启动模式、部署方式和附加选项。
-5. 进入 `写入` 页面，点击开始并再次确认擦除告警。
-6. 完成后在目标设备上测试启动。
+1. 打开 [Releases](https://github.com/Micro-ATP/wtg-assistant-tauri/releases) 下载对应架构版本。
+2. 解压后以管理员身份运行程序。
+3. 进入 `配置`，选择 Windows 镜像与目标磁盘。
+4. 核对参数后进入 `写入`，按提示完成二次确认。
+5. 写入完成后重启并在目标设备上验证启动。
 
-## 基准测试怎么用
+## 下载建议
 
-1. 打开 `基准测试` 页面。
-2. 选择有盘符的目标卷。
-3. 勾选测试模式并开始。
-4. 查看顺序写入、4K 写入、耗时和写入量。
-
-说明:
-- `全盘写入` 与 `极限模式` 会进行大量写入，不要用于重要数据盘。
-
-## 小工具分栏
-
-- 侧边栏已提供 `小工具` 独立入口。
-- 当前是扩展区域，后续会持续增加实用功能。
+- Windows x64: `x86_64-pc-windows-msvc`
+- Windows ARM64: `aarch64-pc-windows-msvc`
 
 ## 常见问题
 
-### 1) 提示权限不足或操作被拒绝
+<details>
+<summary>1) 看不到可写入磁盘</summary>
 
-- 以管理员身份运行软件。
-- 检查安全软件是否拦截磁盘访问。
+- 重新插拔设备后点击刷新。
+- 仅显示有有效盘符的目标分区。
+- 尽量避免不稳定扩展坞或集线器。
 
-### 2) 看不到目标磁盘
+</details>
 
-- 重新插拔设备后刷新列表。
-- 确认磁盘有可识别盘符。
-- 尽量避免通过不稳定的扩展坞连接。
+<details>
+<summary>2) 引导修复看不到系统分区</summary>
 
-### 3) Windows 提示“智能应用控制已阻止”
+- 当前只显示“检测到 Windows 安装”的分区。
+- 请确认目标分区存在 `Windows` 目录。
+- 建议管理员权限运行后重试。
 
-- 这是系统对未知发布者的安全拦截，不是写入逻辑本身报错。
-- 你可以在受控测试环境中调整该策略，不建议使用msi包，优先考虑exe安装包。
+</details>
 
-## 反馈与支持
+<details>
+<summary>3) 安装程序被 Windows 安全中心拦截</summary>
 
-- GitHub Issues: [提交问题](../../issues)
-- 社区论坛: [https://bbs.luobotou.org/](https://bbs.luobotou.org/)
+- 这通常是未知发布者策略触发，不是写入逻辑错误。
+- 可在受控测试环境放行，或优先使用 `exe/nsis` 包。
 
-建议反馈时附带:
+</details>
 
-- 软件版本
-- 操作系统版本
+<details>
+<summary>4) SMART 信息不完整</summary>
+
+- 程序已内置 `smartmontools`，无需额外安装。
+- 部分 USB 桥接盒限制 SMART 透传，属于硬件兼容限制。
+
+</details>
+
+
+## 反馈建议
+
+提交问题时建议附带：
+
+- 软件版本（例如 `V0.0.3-Alpha`）
+- Windows 版本与系统架构
 - 复现步骤
 - 错误截图或日志
 

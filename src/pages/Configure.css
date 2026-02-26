@@ -371,6 +371,23 @@ input:checked + .slider:before {
   font-weight: var(--font-weight-semibold);
 }
 
+.radio-option.radio-option-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.radio-option.radio-option-disabled:hover {
+  border-color: var(--color-border-default);
+  background: var(--color-background-secondary);
+  box-shadow: none;
+}
+
+.field-hint {
+  margin-top: var(--spacing-md);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
 /* Checkbox grid */
 .checkbox-grid {
   display: grid;

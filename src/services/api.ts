@@ -129,6 +129,15 @@ export const systemApi = {
       throw error
     }
   },
+
+  exitApp: async (): Promise<void> => {
+    try {
+      await invoke('exit_app')
+    } catch (error) {
+      console.error('Failed to exit app:', error)
+      throw error
+    }
+  },
 }
 
 /**

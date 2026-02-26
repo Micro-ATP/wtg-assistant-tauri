@@ -20,6 +20,7 @@ function formatBytes(bytes: number): string {
 function ConfigurePage() {
   const { t } = useTranslation()
   const {
+    systemInfo,
     disks,
     setDisks,
     selectedDisk,
@@ -83,20 +84,27 @@ function ConfigurePage() {
   const handleSelectImage = async () => {
     try {
       const { open } = await import('@tauri-apps/plugin-dialog')
+      const imageExtensions = isMacHost
+        ? ['iso', 'wim', 'esd']
+        : ['iso', 'wim', 'esd', 'vhd', 'vhdx']
       const selected = await open({
         multiple: false,
         filters: [
-          { name: 'Windows Image', extensions: ['iso', 'wim', 'esd', 'vhd', 'vhdx'] },
+          { name: 'Windows Image', extensions: imageExtensions },
         ],
       })
       if (selected) {
         const path = selected as string
+        const ext = path.split('.').pop()?.toLowerCase() || ''
+        if (isMacHost && (ext === 'vhd' || ext === 'vhdx')) {
+          setImageError(t('configure.macVhdUnsupported') || 'VHD/VHDX mode is currently unavailable on macOS.')
+          return
+        }
+
         setImagePath(path)
         setImageInfoList([])
         setSelectedWimIndex('0')
         setImageError(null)
-
-        const ext = path.split('.').pop()?.toLowerCase() || ''
 
         // VHD/VHDX files are used directly, no index selection needed
         if (ext === 'vhd' || ext === 'vhdx') {
@@ -128,7 +136,8 @@ function ConfigurePage() {
     }
   }
 
-  const isVhdMode = applyMode === 'vhd' || applyMode === 'vhdx'
+  const isMacHost = (systemInfo?.os || '').toLowerCase() === 'macos'
+  const isVhdMode = !isMacHost && (applyMode === 'vhd' || applyMode === 'vhdx')
   const isUefiMode = bootMode === 'uefi_gpt' || bootMode === 'uefi_mbr'
   const isLegacyMode = bootMode === 'non_uefi'
 
@@ -191,6 +200,12 @@ function ConfigurePage() {
       setExtraFeatures({ ...extraFeatures, do_not_format: false })
     }
   }, [isLegacyMode, extraFeatures, setExtraFeatures])
+
+  useEffect(() => {
+    if (isMacHost && (applyMode === 'vhd' || applyMode === 'vhdx')) {
+      setApplyMode('legacy')
+    }
+  }, [isMacHost, applyMode, setApplyMode])
 
   const handleBrowseDriverPath = async () => {
     try {
@@ -371,27 +386,34 @@ function ConfigurePage() {
             />
             <span>{t('configure.typicalMode') || 'Typical (Direct)'}</span>
           </label>
-          <label className="radio-option">
+          <label className={`radio-option ${isMacHost ? 'radio-option-disabled' : ''}`}>
             <input
               type="radio"
               name="applyMode"
               value="vhd"
               checked={applyMode === 'vhd'}
+              disabled={isMacHost}
               onChange={(e) => setApplyMode(e.target.value as ApplyMode)}
             />
             <span>VHD</span>
           </label>
-          <label className="radio-option">
+          <label className={`radio-option ${isMacHost ? 'radio-option-disabled' : ''}`}>
             <input
               type="radio"
               name="applyMode"
               value="vhdx"
               checked={applyMode === 'vhdx'}
+              disabled={isMacHost}
               onChange={(e) => setApplyMode(e.target.value as ApplyMode)}
             />
             <span>VHDX</span>
           </label>
         </div>
+        {isMacHost ? (
+          <p className="field-hint">
+            {t('configure.macVhdUnsupported') || 'VHD/VHDX mode is currently unavailable on macOS.'}
+          </p>
+        ) : null}
       </section>
 
       {/* VHD Settings (conditional) */}

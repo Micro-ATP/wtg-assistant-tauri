@@ -1,6 +1,8 @@
 //! Write commands - Tauri command handlers for write operations
 
 use crate::models::{ImageInfo, WriteProgress, WtgConfig};
+#[cfg(target_os = "macos")]
+use crate::models::ApplyMode;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use crate::services;
 use crate::utils::progress::PROGRESS_REPORTER;
@@ -77,6 +79,12 @@ pub async fn start_write(config: WtgConfig, app_handle: tauri::AppHandle) -> Res
 
     #[cfg(target_os = "macos")]
     {
+        if matches!(config.apply_mode, ApplyMode::VHD | ApplyMode::VHDX) {
+            return Err(AppError::Unsupported(
+                "VHD/VHDX apply mode is not supported on macOS yet".to_string(),
+            ));
+        }
+
         PROGRESS_REPORTER.set_app_handle(app_handle);
 
         let app_files_path = std::env::temp_dir()

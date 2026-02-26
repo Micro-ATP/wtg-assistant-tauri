@@ -44,6 +44,7 @@ fn main() {
             commands::system::open_logs_directory,
             commands::system::get_macos_admin_session_status,
             commands::system::authorize_macos_admin_session,
+            commands::system::exit_app,
             commands::write::get_image_info,
             commands::write::start_write,
             commands::write::cancel_write,

@@ -73,3 +73,9 @@ pub async fn get_macos_admin_session_status() -> Result<MacosAdminSessionStatus>
 pub async fn authorize_macos_admin_session() -> Result<MacosAdminSessionStatus> {
     crate::utils::macos_admin::authorize_macos_admin_session()
 }
+
+#[tauri::command]
+pub async fn exit_app(app_handle: tauri::AppHandle) -> Result<()> {
+    app_handle.exit(0);
+    Ok(())
+}

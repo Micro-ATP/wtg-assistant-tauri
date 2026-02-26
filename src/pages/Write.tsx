@@ -63,6 +63,7 @@ function getStatusText(status: string, t: (key: string) => string): string {
 function WritePage() {
   const { t } = useTranslation()
   const {
+    systemInfo,
     imagePath,
     selectedDisk,
     bootMode,
@@ -82,6 +83,7 @@ function WritePage() {
   } = useAppStore()
   const [showEraseConfirmModal, setShowEraseConfirmModal] = useState(false)
   const [eraseConfirmCountdown, setEraseConfirmCountdown] = useState(0)
+  const isMacHost = (systemInfo?.os || '').toLowerCase() === 'macos'
 
   // Set up event listener for real-time progress updates
   useEffect(() => {
@@ -123,6 +125,10 @@ function WritePage() {
 
   const startWrite = async () => {
     if (!selectedDisk || !imagePath) return
+    if (isMacHost && (applyMode === 'vhd' || applyMode === 'vhdx')) {
+      setError(t('configure.macVhdUnsupported') || 'VHD/VHDX apply mode is currently unavailable on macOS.')
+      return
+    }
 
     const imageType = getImageType(imagePath)
 

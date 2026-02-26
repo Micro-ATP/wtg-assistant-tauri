@@ -69,7 +69,8 @@
     "doNotFormat": "不重新分區/格式化磁碟",
     "driverPath": "驅動程式資料夾（可選）",
     "selectEdition": "選擇 Windows 版本",
-    "loadingImageInfo": "正在讀取映像資訊，請稍候..."
+    "loadingImageInfo": "正在讀取映像資訊，請稍候...",
+    "macVhdUnsupported": "macOS 暫不支援 VHD/VHDX 部署模式。"
   },
   "write": {
     "title": "寫入",

@@ -65,7 +65,8 @@
     "noDefaultLetter": "No Default Drive Letter",
     "repartition": "Repartition Disk",
     "selectEdition": "Select Windows Edition",
-    "loadingImageInfo": "Reading image information, please wait..."
+    "loadingImageInfo": "Reading image information, please wait...",
+    "macVhdUnsupported": "VHD/VHDX apply mode is currently unavailable on macOS."
   },
   "write": {
     "title": "Write",

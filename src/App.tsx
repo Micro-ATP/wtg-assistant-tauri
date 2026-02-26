@@ -92,10 +92,17 @@ function App() {
 
   const handleExitApp = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
-      await getCurrentWindow().close()
+      await systemApi.exitApp()
+      return
     } catch (error) {
-      console.error('Failed to close app window:', error)
+      console.error('Failed to exit app via backend command:', error)
+    }
+
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().destroy()
+    } catch (error) {
+      console.error('Failed to destroy app window:', error)
       window.close()
     }
   }

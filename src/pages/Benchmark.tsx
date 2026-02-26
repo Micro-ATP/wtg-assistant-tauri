@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { benchmarkApi } from '../services/api'
-import { usePartitionList } from '../hooks/usePartitionList'
+import { benchmarkApi, diskApi } from '../services/api'
 import { useAppStore } from '../services/store'
 import { SpinnerIcon, RefreshIcon } from '../components/Icons'
 import type { BenchmarkResult as BenchResult, DiskInfo } from '../types'
-import type { PartitionInfo } from '../hooks/usePartitionList'
 import './Benchmark.css'
 
 type PrimaryBenchmarkMode = 'quick' | 'multithread' | 'full'
@@ -133,11 +131,45 @@ function isModeCompleted(mode: BenchmarkMode, result?: BenchResult): boolean {
   return !!(result.write_seq || result.write_4k)
 }
 
+function getBenchmarkTargetPath(disk: DiskInfo): string {
+  const raw = (disk.volume || '').trim()
+  if (!raw) return ''
+  if (/^[a-z]$/i.test(raw)) return `${raw.toUpperCase()}:\\`
+  if (/^[a-z]:$/i.test(raw)) return `${raw.toUpperCase()}\\`
+  return raw
+}
+
+function formatDiskTarget(disk: DiskInfo | null): string {
+  if (!disk) return '--'
+  const target = getBenchmarkTargetPath(disk)
+  return target || '--'
+}
+
+function getDiskProtocolLabel(disk: DiskInfo): string {
+  const driveType = (disk.drive_type || '').trim().toUpperCase()
+  if (driveType.includes('NVME')) return 'NVMe'
+  if (driveType.includes('SATA')) return 'SATA'
+  if (driveType.includes('USB')) return 'USB'
+  if (driveType.includes('SAS')) return 'SAS'
+  if (driveType.includes('RAID')) return 'RAID'
+  if (driveType.includes('ATA')) return 'ATA'
+  if (driveType.includes('SCSI')) return 'SCSI'
+  if (driveType.includes('ATAPI')) return 'ATAPI'
+  if (driveType.includes('SD')) return 'SD'
+  if (driveType.includes('MMC')) return 'MMC'
+
+  const media = (disk.media_type || '').toUpperCase()
+  if (media.includes('SSD') || media.includes('NVME') || media === '4') return 'SSD'
+  if (media.includes('HDD') || media.includes('ROTATIONAL') || media === '3') return 'HDD'
+  return 'Disk'
+}
+
 function BenchmarkPage() {
   const { t } = useTranslation()
-  const { partitions, loading, error, refetch } = usePartitionList()
-  const { selectedDisk, setSelectedDisk } = useAppStore()
+  const { disks, setDisks, selectedDisk, setSelectedDisk } = useAppStore()
 
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [primaryMode, setPrimaryMode] = useState<PrimaryBenchmarkMode>('quick')
   const [extraModes, setExtraModes] = useState<Record<ExtraBenchmarkMode, boolean>>({
@@ -151,29 +183,41 @@ function BenchmarkPage() {
   const [progressNowMs, setProgressNowMs] = useState<number>(Date.now())
   const [canceling, setCanceling] = useState(false)
 
-  const visibleParts = useMemo(
-    () => partitions.filter((p) => /^[A-Z]$/i.test((p.drive_letter || '').trim())),
-    [partitions],
-  )
+  const loadDisks = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const result = await diskApi.listDisks()
+      setDisks(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [setDisks])
 
-  const getProtocolLabel = (partition: PartitionInfo) => {
-    const proto = (partition.protocol || '').trim().toUpperCase()
-    if (proto === 'NVME') return 'NVMe'
-    if (proto === 'SATA') return 'SATA'
-    if (proto === 'USB') return 'USB'
-    if (proto === 'SAS') return 'SAS'
-    if (proto === 'RAID') return 'RAID'
-    if (proto === 'ATA') return 'ATA'
-    if (proto === 'SCSI') return 'SCSI'
-    if (proto === 'ATAPI') return 'ATAPI'
-    if (proto === 'SD') return 'SD'
-    if (proto === 'MMC') return 'MMC'
+  useEffect(() => {
+    void loadDisks()
+  }, [loadDisks])
 
-    const media = (partition.media_type || '').toUpperCase()
-    if (media.includes('SSD') || media.includes('NVME') || media === '4') return 'SSD'
-    if (media.includes('HDD') || media.includes('ROTATIONAL') || media === '3') return 'HDD'
-    return 'Disk'
-  }
+  const visibleDisks = useMemo(() => {
+    const mounted = disks.filter((d) => getBenchmarkTargetPath(d).length > 0)
+    const removableMounted = mounted.filter((d) => d.removable)
+    return removableMounted.length > 0 ? removableMounted : mounted
+  }, [disks])
+
+  useEffect(() => {
+    if (visibleDisks.length === 0) {
+      return
+    }
+    const current = selectedDisk
+      ? visibleDisks.find((d) => d.id === selectedDisk.id)
+      : undefined
+    const currentTarget = current ? getBenchmarkTargetPath(current) : ''
+    if (!current || !currentTarget) {
+      setSelectedDisk(visibleDisks[0])
+    }
+  }, [visibleDisks, selectedDisk, setSelectedDisk])
 
   useEffect(() => {
     if (!running) return
@@ -226,25 +270,18 @@ function BenchmarkPage() {
     setCurrentModeStartedAt(null)
   }
 
-  const mapPartitionToDiskInfo = (partition: PartitionInfo): DiskInfo => ({
-    id: partition.drive_letter,
-    name: `${partition.label || 'Volume'} (${partition.drive_letter}:)`,
-    size: partition.size,
-    free: partition.free,
-    removable: false,
-    device: `Disk ${partition.disk_number}`,
-    drive_type: 'Partition',
-    index: String(partition.disk_number),
-    volume: partition.drive_letter,
-    media_type: partition.media_type,
-  })
-
   const handleStart = async () => {
-    if (!selectedDisk || !selectedDisk.volume) {
+    const fallbackDisk = selectedDisk && getBenchmarkTargetPath(selectedDisk)
+      ? selectedDisk
+      : visibleDisks[0] || null
+    const targetPath = fallbackDisk ? getBenchmarkTargetPath(fallbackDisk) : ''
+    if (!fallbackDisk || !targetPath) {
       setBenchError(t('errors.deviceNotFound') || 'No disk selected')
       return
     }
-    const targetPath = `${selectedDisk.volume.replace(':', '')}:\\`
+    if (!selectedDisk || selectedDisk.id !== fallbackDisk.id) {
+      setSelectedDisk(fallbackDisk)
+    }
     try {
       setRunning(true)
       setProgressNowMs(Date.now())
@@ -293,27 +330,27 @@ function BenchmarkPage() {
       <section className="config-card">
         <div className="card-header">
           <h2>{t('configure.selectDisk')}</h2>
-          <button className="btn-refresh" onClick={() => void refetch()} disabled={loading}>
+          <button className="btn-refresh" onClick={() => void loadDisks()} disabled={loading}>
             {loading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
           </button>
         </div>
         {error && <div className="error-msg">{error}</div>}
         <div className="disk-list">
-          {visibleParts.length === 0 && !loading ? (
+          {visibleDisks.length === 0 && !loading ? (
             <div className="empty-state">{t('errors.deviceNotFound')}</div>
           ) : (
-            visibleParts.map((p) => (
+            visibleDisks.map((d) => (
               <div
-                key={p.drive_letter}
-                className={`disk-item ${selectedDisk?.volume === p.drive_letter ? 'selected' : ''}`}
-                onClick={() => setSelectedDisk(mapPartitionToDiskInfo(p))}
+                key={d.id}
+                className={`disk-item ${selectedDisk?.id === d.id ? 'selected' : ''}`}
+                onClick={() => setSelectedDisk(d)}
               >
-                <div className="disk-icon">{getProtocolLabel(p)}</div>
+                <div className="disk-icon">{getDiskProtocolLabel(d)}</div>
                 <div className="disk-info">
-                  <div className="disk-name">{p.label || 'Volume'}</div>
+                  <div className="disk-name">{d.name || d.id}</div>
                   <div className="disk-details">
-                    {p.drive_letter}:\\ - {formatBytes(p.size)}
-                    <span className="badge-removable">{getProtocolLabel(p)}</span>
+                    {formatDiskTarget(d)} - {formatBytes(d.size)}
+                    <span className="badge-removable">{getDiskProtocolLabel(d)}</span>
                   </div>
                 </div>
               </div>
@@ -362,10 +399,10 @@ function BenchmarkPage() {
         <div className="bench-actions">
           <div>
             <div className="label">{t('configure.selectDisk')}</div>
-            <div className="value">{selectedDisk ? `${selectedDisk.volume}:\\` : '--'}</div>
+            <div className="value">{formatDiskTarget(selectedDisk)}</div>
           </div>
           <div className="bench-buttons">
-            <button className="btn-primary" onClick={handleStart} disabled={running || !selectedDisk || !selectedDisk.volume}>
+            <button className="btn-primary" onClick={handleStart} disabled={running || !selectedDisk || !getBenchmarkTargetPath(selectedDisk)}>
               {running ? t('benchmark.running') || t('messages.loading') : t('benchmark.start')}
             </button>
             {running ? (

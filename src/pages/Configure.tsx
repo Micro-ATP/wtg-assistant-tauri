@@ -207,6 +207,12 @@ function ConfigurePage() {
     }
   }, [isMacHost, applyMode, setApplyMode])
 
+  useEffect(() => {
+    if (isMacHost && bootMode === 'non_uefi') {
+      setBootMode('uefi_gpt')
+    }
+  }, [isMacHost, bootMode, setBootMode])
+
   const handleBrowseDriverPath = async () => {
     try {
       const { open } = await import('@tauri-apps/plugin-dialog')
@@ -359,17 +365,23 @@ function ConfigurePage() {
             />
             <span>UEFI + MBR</span>
           </label>
-          <label className="radio-option">
+          <label className={`radio-option ${isMacHost ? 'radio-option-disabled' : ''}`}>
             <input
               type="radio"
               name="bootMode"
               value="non_uefi"
               checked={bootMode === 'non_uefi'}
+              disabled={isMacHost}
               onChange={(e) => setBootMode(e.target.value as BootMode)}
             />
             <span>Legacy (Non-UEFI)</span>
           </label>
         </div>
+        {isMacHost ? (
+          <p className="field-hint">
+            {t('configure.macLegacyUnsupported') || 'Legacy (Non-UEFI) boot mode is currently unavailable on macOS.'}
+          </p>
+        ) : null}
       </section>
 
       {/* Apply Mode */}

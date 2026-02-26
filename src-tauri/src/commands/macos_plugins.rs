@@ -2,6 +2,7 @@ use crate::{AppError, Result};
 use crate::utils::macos_admin;
 use lazy_static::lazy_static;
 use serde::Serialize;
+use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -9,6 +10,8 @@ use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
 use tauri::Emitter;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 const EVENT_MACOS_PLUGIN_INSTALL_LOG: &str = "macos-plugin-install-log";
 
@@ -319,6 +322,19 @@ fn find_ntfs_mount_script() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.exists())
 }
 
+fn stage_ntfs_mount_script_for_privileged_exec() -> Result<PathBuf> {
+    let source = find_ntfs_mount_script().ok_or_else(|| {
+        AppError::SystemError("Cannot find useable_software/ntfs-mount.sh".to_string())
+    })?;
+    let staged = PathBuf::from("/tmp").join(format!("wtga-ntfs-mount-{}.sh", std::process::id()));
+    fs::copy(&source, &staged).map_err(AppError::io)?;
+    #[cfg(unix)]
+    {
+        let _ = fs::set_permissions(&staged, fs::Permissions::from_mode(0o755));
+    }
+    Ok(staged)
+}
+
 fn set_install_running(plugin_id: Option<&str>, running: bool) -> Result<()> {
     let mut state = INSTALL_STATE
         .lock()
@@ -486,16 +502,27 @@ pub async fn start_macos_ntfs_remount(app_handle: tauri::AppHandle) -> Result<St
                 None,
                 None,
             );
+            emit_install_event(
+                &app,
+                &plugin,
+                "line",
+                "stderr",
+                "Warning: Force mode is enabled for WTG workflow. If needed, ntfs-3g may remove Windows hibernation state (remove_hiberfile) to mount writable."
+                    .to_string(),
+                None,
+                None,
+            );
 
             let result = (|| -> Result<()> {
-                let script = find_ntfs_mount_script().ok_or_else(|| {
-                    AppError::SystemError("Cannot find useable_software/ntfs-mount.sh".to_string())
-                })?;
+                let script = stage_ntfs_mount_script_for_privileged_exec()?;
+                let escaped = shell_escape_single_quotes(script.to_string_lossy().as_ref());
                 let command = format!(
-                    "export PATH='/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH'; bash '{}'",
-                    shell_escape_single_quotes(script.to_string_lossy().as_ref())
+                    "cd /tmp || true; export PATH='/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH'; WTGA_NTFS_FORCE=1 /bin/bash '{}'; EXIT_CODE=$?; /bin/rm -f '{}'; exit $EXIT_CODE",
+                    escaped, escaped
                 );
-                let output = macos_admin::run_privileged_macos(&command)?;
+                let output_result = macos_admin::run_privileged_macos(&command);
+                let _ = fs::remove_file(&script);
+                let output = output_result?;
                 if output.trim().is_empty() {
                     emit_install_event(
                         &app,

@@ -49,6 +49,8 @@ fn main() {
             commands::write::start_write,
             commands::write::cancel_write,
             commands::write::verify_system_files,
+            commands::write::check_macos_target_writable,
+            commands::write::remount_macos_target_ntfs_writable,
             commands::benchmark::run_benchmark,
             commands::benchmark::cancel_benchmark,
             commands::partition::list_partitions,

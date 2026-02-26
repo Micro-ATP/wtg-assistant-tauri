@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  Disk,
   DiskInfo,
   SystemInfo,
   WtgConfig,
@@ -13,6 +14,7 @@ import type {
   MacosAdminSessionStatus,
   MacosPluginItem,
   MacosPluginInstallStatus,
+  MacosTargetWritableCheck,
 } from '@/types'
 
 /**
@@ -188,6 +190,30 @@ export const writeApi = {
       return result
     } catch (error) {
       console.error('Failed to verify system files:', error)
+      throw error
+    }
+  },
+
+  checkMacosTargetWritable: async (targetDisk: Disk): Promise<MacosTargetWritableCheck> => {
+    try {
+      const result = await invoke<MacosTargetWritableCheck>('check_macos_target_writable', {
+        targetDisk,
+      })
+      return result
+    } catch (error) {
+      console.error('Failed to check macOS target writable state:', error)
+      throw error
+    }
+  },
+
+  remountMacosTargetNtfsWritable: async (targetDisk: Disk): Promise<MacosTargetWritableCheck> => {
+    try {
+      const result = await invoke<MacosTargetWritableCheck>('remount_macos_target_ntfs_writable', {
+        targetDisk,
+      })
+      return result
+    } catch (error) {
+      console.error('Failed to remount macOS NTFS target writable:', error)
       throw error
     }
   },

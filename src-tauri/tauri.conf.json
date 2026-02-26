@@ -36,10 +36,7 @@
       "resources/smartmontools/bin"
     ],
     "icon": [
-      "icons/icon.png",
-      "icons/icon.icns",
-      "icons/icon.png",
-      "icons/icon.ico"
+      "icons/icon.png"
     ]
   }
 }

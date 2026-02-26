@@ -113,7 +113,20 @@ fn build_volume_map(list_json: &Value) -> HashMap<String, String> {
         let volume = disk
             .get("Partitions")
             .and_then(Value::as_array)
-            .and_then(|parts| parts.iter().find_map(pick_volume_from_partition))
+            .map(|parts| {
+                parts
+                    .iter()
+                    .find_map(|p| {
+                        let mount_point = json_str(p, "MountPoint");
+                        if mount_point.is_empty() {
+                            None
+                        } else {
+                            Some(mount_point)
+                        }
+                    })
+                    .or_else(|| parts.iter().find_map(pick_volume_from_partition))
+                    .unwrap_or_default()
+            })
             .unwrap_or_default();
 
         map.insert(disk_id, volume);

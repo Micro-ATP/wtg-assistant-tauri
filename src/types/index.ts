@@ -143,6 +143,19 @@ export interface MacosAdminSessionStatus {
   last_error?: string | null
 }
 
+export interface MacosTargetWritableCheck {
+  supported: boolean
+  disk_id: string
+  partition_id?: string | null
+  mount_point?: string | null
+  filesystem: string
+  writable_volume: boolean
+  dir_writable: boolean
+  writable: boolean
+  needs_ntfs_remount: boolean
+  reason?: string | null
+}
+
 export interface BenchmarkResult {
   write_seq: number
   write_4k: number

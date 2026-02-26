@@ -58,7 +58,7 @@ function Sidebar() {
         {!isCollapsed ? (
           <div className="app-mini-brand">
             <div className="app-mini-icon">
-              <img src="/icons/WTGA.ico" alt="WTG Logo" />
+              <img src="/icons/icon.png" alt="WTG Logo" />
             </div>
             <span>{t('common.appName')}</span>
           </div>

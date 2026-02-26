@@ -5,6 +5,7 @@ use rand::{Rng, RngCore};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
@@ -42,6 +43,8 @@ const WTGB_EXTREME_DURATION: Duration = Duration::from_secs(15 * 60);
 const WTGB_4K_SAMPLE_INTERVAL: Duration = Duration::from_millis(500);
 const WTGB_4K_POINTS: usize = 30;
 const WTGB_QUICK_4K_POINTS: usize = 12;
+const WTGB_4K_SYNC_EVERY_OPS: u64 = 256;
+const WTGB_SCENARIO_SYNC_EVERY_BYTES: u64 = 4 * MB;
 
 // WTGBench multi-thread curve defaults.
 const WTGB_MT_LEVEL_DURATION: Duration = Duration::from_secs(30);
@@ -165,7 +168,7 @@ fn ensure_file_region(file: &mut File, region_bytes: u64) -> Result<()> {
     let end = region_bytes.saturating_sub(BLOCK_SIZE as u64);
     file.seek(SeekFrom::Start(end))?;
     file.write_all(&tail)?;
-    file.flush()?;
+    file.sync_data()?;
     Ok(())
 }
 
@@ -226,7 +229,25 @@ fn get_free_bytes(root: &str) -> u64 {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_free_bytes(_root: &str) -> u64 {
+fn get_free_bytes(root: &str) -> u64 {
+    let output = Command::new("df").args(["-kP", root]).output();
+    let Ok(output) = output else {
+        return 0;
+    };
+    if !output.status.success() {
+        return 0;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = text.lines().skip(1).collect();
+    for line in lines.into_iter().rev() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 4 {
+            continue;
+        }
+        if let Ok(kb) = cols[3].parse::<u64>() {
+            return kb.saturating_mul(1024);
+        }
+    }
     0
 }
 
@@ -255,7 +276,7 @@ fn sequential_wtgb_with_ring(
         let pos = offset % safe_ring;
         file.seek(SeekFrom::Start(pos))?;
         file.write_all(&chunk)?;
-        file.flush()?;
+        file.sync_data()?;
 
         let sec = chunk_start.elapsed().as_secs_f64().max(0.001);
         let mbps = (WTGB_SEQ_CHUNK_BYTES as f64 / 1024.0 / 1024.0) / sec;
@@ -291,6 +312,7 @@ fn random_4k_single_wtgb_with_points(
     let mut points = Vec::with_capacity(points_target);
     let mut trend = Vec::with_capacity(points_target);
     let mut window_ops: u64 = 0;
+    let mut pending_sync_ops: u64 = 0;
     let mut window_start = Instant::now();
     let mut elapsed_sec = 0.0;
 
@@ -300,10 +322,18 @@ fn random_4k_single_wtgb_with_points(
         let pos = idx * BLOCK_SIZE as u64;
         file.seek(SeekFrom::Start(pos))?;
         file.write_all(&block)?;
-        file.flush()?;
         window_ops += 1;
+        pending_sync_ops += 1;
+        if pending_sync_ops >= WTGB_4K_SYNC_EVERY_OPS {
+            file.sync_data()?;
+            pending_sync_ops = 0;
+        }
 
         if window_start.elapsed() >= WTGB_4K_SAMPLE_INTERVAL {
+            if pending_sync_ops > 0 {
+                file.sync_data()?;
+                pending_sync_ops = 0;
+            }
             let sec = window_start.elapsed().as_secs_f64().max(0.001);
             let mbps = ((window_ops * BLOCK_SIZE as u64) as f64 / 1024.0 / 1024.0) / sec;
             points.push(mbps);
@@ -315,6 +345,10 @@ fn random_4k_single_wtgb_with_points(
             window_ops = 0;
             window_start = Instant::now();
         }
+    }
+
+    if pending_sync_ops > 0 {
+        file.sync_data()?;
     }
 
     let avg = mean(&points);
@@ -355,6 +389,7 @@ fn random_4k_multi_once(path: &str, threads: u32, duration: Duration) -> Result<
 
             let mut block = [0u8; BLOCK_SIZE];
             fill_random(&mut block);
+            let mut pending_sync_ops: u64 = 0;
 
             while !f_start.load(Ordering::Acquire) {
                 if is_cancelled() {
@@ -372,10 +407,17 @@ fn random_4k_multi_once(path: &str, threads: u32, duration: Duration) -> Result<
                 let rnd = rng.gen_range(0..(RANDOM_REGION_BYTES / BLOCK_SIZE as u64));
                 file.seek(SeekFrom::Start(rnd * BLOCK_SIZE as u64))?;
                 file.write_all(&block)?;
-                file.flush()?;
+                pending_sync_ops += 1;
+                if pending_sync_ops >= WTGB_4K_SYNC_EVERY_OPS {
+                    file.sync_data()?;
+                    pending_sync_ops = 0;
+                }
                 f_total.fetch_add(BLOCK_SIZE as u64, Ordering::Relaxed);
             }
 
+            if pending_sync_ops > 0 {
+                file.sync_data()?;
+            }
             Ok(())
         }));
     }
@@ -479,7 +521,7 @@ fn sequential_full(path: &str, target_bytes: u64) -> Result<(f64, Vec<Sample>, u
                 break;
             }
         }
-        file.flush()?;
+        file.sync_data()?;
 
         let step_written = bytes_written.saturating_sub(step_begin);
         if step_written == 0 {
@@ -694,6 +736,7 @@ fn scenario_line_worker(path: String, line: ScenarioLine) -> Result<u64> {
     let mut read_buf = vec![0u8; max_io];
     let mut prev_pos: u64 = 0;
     let mut ops: u64 = 0;
+    let mut pending_sync_bytes: u64 = 0;
 
     let start = Instant::now();
     while start.elapsed() < SCENARIO_LINE_DURATION {
@@ -725,13 +768,21 @@ fn scenario_line_worker(path: String, line: ScenarioLine) -> Result<u64> {
 
         if rng.gen_bool(line.write_proportion) {
             file.write_all(&write_buf[..len])?;
-            file.flush()?;
+            pending_sync_bytes = pending_sync_bytes.saturating_add(len as u64);
+            if pending_sync_bytes >= WTGB_SCENARIO_SYNC_EVERY_BYTES {
+                file.sync_data()?;
+                pending_sync_bytes = 0;
+            }
         } else {
             let _ = file.read(&mut read_buf[..len])?;
         }
 
         prev_pos = (safe_pos + len as u64) % RANDOM_REGION_BYTES;
         ops += 1;
+    }
+
+    if pending_sync_bytes > 0 {
+        file.sync_data()?;
     }
 
     Ok(ops)
@@ -793,143 +844,149 @@ fn scenario_benchmark(path_prefix: &str) -> Result<(u64, Vec<TrendPoint>)> {
 }
 
 pub async fn run_benchmark(config: &BenchmarkConfig) -> Result<BenchmarkResult> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        return Err(crate::AppError::Unsupported(
-            "Benchmark only implemented on Windows".into(),
+    clear_cancel_flag();
+
+    let target_root = config.target_path.trim();
+    if target_root.is_empty() {
+        return Err(crate::AppError::InvalidParameter(
+            "Benchmark target path is empty".to_string(),
         ));
     }
 
-    #[cfg(target_os = "windows")]
-    {
+    let target_dir = Path::new(target_root);
+    if !target_dir.exists() || !target_dir.is_dir() {
         clear_cancel_flag();
-        let base = config.target_path.trim_end_matches(['\\', '/']);
-        let temp_file = format!("{}\\wtg_bench.bin", base);
-        let start = Instant::now();
-
-        let mut result = BenchmarkResult {
-            mode: config.mode.clone(),
-            write_seq: 0.0,
-            write_4k: 0.0,
-            write_4k_raw: None,
-            write_4k_adjusted: None,
-            write_4k_samples: vec![],
-            thread_results: vec![],
-            full_seq_samples: vec![],
-            scenario_samples: vec![],
-            scenario_total_io: None,
-            scenario_score: None,
-            score: None,
-            grade: None,
-            duration_ms: 0,
-            full_written_gb: 0.0,
-        };
-
-        let run_outcome: Result<()> = (|| {
-            match config.mode.as_str() {
-                "multithread" => {
-                    let seq = sequential_wtgb(&temp_file, WTGB_SEQ_DURATION)?;
-                    let r4k = random_4k_single_wtgb(&temp_file)?;
-                    let mt = random_4k_multithread_curve(&temp_file)?;
-                    let (score, grade) = compute_wtgb_score(seq.0, r4k.1);
-
-                    result.write_seq = seq.0;
-                    result.full_seq_samples = seq.1;
-                    result.full_written_gb = seq.2 as f64 / GIB;
-                    result.write_4k = r4k.1;
-                    result.write_4k_raw = Some(r4k.0);
-                    result.write_4k_adjusted = Some(r4k.1);
-                    result.write_4k_samples = r4k.2;
-                    result.thread_results = mt;
-                    result.score = Some(score);
-                    result.grade = Some(grade);
-                }
-                "fullwrite" => {
-                    let free = get_free_bytes(&format!("{}\\", base));
-                    let target = free.saturating_sub(FULL_RESERVED_BYTES);
-                    let aligned = (target / FULL_IO_BYTES) * FULL_IO_BYTES;
-                    if aligned < FULL_IO_BYTES {
-                        return Err(crate::AppError::InvalidParameter(
-                            "Not enough free space for full benchmark (needs at least ~64MB)"
-                                .into(),
-                        ));
-                    }
-                    let seq = sequential_full(&temp_file, aligned)?;
-                    result.write_seq = seq.0;
-                    result.full_seq_samples = seq.1;
-                    result.full_written_gb = seq.2 as f64 / GIB;
-                }
-                "full" => {
-                    let seq = sequential_wtgb(&temp_file, WTGB_EXTREME_DURATION)?;
-                    let r4k = random_4k_single_wtgb(&temp_file)?;
-                    let (score, grade) = compute_wtgb_score(seq.0, r4k.1);
-
-                    result.write_seq = seq.0;
-                    result.full_seq_samples = seq.1;
-                    result.full_written_gb = seq.2 as f64 / GIB;
-                    result.write_4k = r4k.1;
-                    result.write_4k_raw = Some(r4k.0);
-                    result.write_4k_adjusted = Some(r4k.1);
-                    result.write_4k_samples = r4k.2;
-                    result.score = Some(score);
-                    result.grade = Some(grade);
-                }
-                "scenario" => {
-                    let (total_io, trend) = scenario_benchmark(&temp_file)?;
-                    result.scenario_total_io = Some(total_io);
-                    result.scenario_score = Some(total_io as f64 / 1000.0);
-                    result.scenario_samples = trend;
-                }
-                _ => {
-                    // quick
-                    let seq = sequential_wtgb_with_ring(
-                        &temp_file,
-                        WTGB_QUICK_SEQ_DURATION,
-                        WTGB_QUICK_SEQ_RING_BYTES,
-                    )?;
-                    let r4k = random_4k_single_wtgb_with_points(&temp_file, WTGB_QUICK_4K_POINTS)?;
-                    let (score, grade) = compute_wtgb_score(seq.0, r4k.1);
-
-                    result.write_seq = seq.0;
-                    result.full_seq_samples = seq.1;
-                    result.full_written_gb = seq.2 as f64 / GIB;
-                    result.write_4k = r4k.1;
-                    result.write_4k_raw = Some(r4k.0);
-                    result.write_4k_adjusted = Some(r4k.1);
-                    result.write_4k_samples = r4k.2;
-                    result.score = Some(score);
-                    result.grade = Some(grade);
-                }
-            }
-            ensure_not_cancelled()?;
-            Ok(())
-        })();
-
-        if let Err(e) = run_outcome {
-            let _ = std::fs::remove_file(&temp_file);
-            clear_cancel_flag();
-            return Err(e);
-        }
-
-        result.write_seq = round1(result.write_seq);
-        result.write_4k = round1(result.write_4k);
-        result.write_4k_raw = result.write_4k_raw.map(round1);
-        result.write_4k_adjusted = result.write_4k_adjusted.map(round1);
-        result.full_written_gb = round1(result.full_written_gb);
-        result.score = result.score.map(round1);
-        result.scenario_score = result.scenario_score.map(round1);
-        result.thread_results = result
-            .thread_results
-            .into_iter()
-            .map(|mut x| {
-                x.mb_s = round1(x.mb_s);
-                x
-            })
-            .collect();
-        result.duration_ms = start.elapsed().as_millis() as u64;
-
-        let _ = std::fs::remove_file(&temp_file);
-        clear_cancel_flag();
-        Ok(result)
+        return Err(crate::AppError::InvalidParameter(format!(
+            "Benchmark target path is not a valid directory: {}",
+            target_root
+        )));
     }
+
+    let temp_file = target_dir.join("wtg_bench.bin");
+    let temp_file_str = temp_file.to_string_lossy().to_string();
+    let start = Instant::now();
+
+    let mut result = BenchmarkResult {
+        mode: config.mode.clone(),
+        write_seq: 0.0,
+        write_4k: 0.0,
+        write_4k_raw: None,
+        write_4k_adjusted: None,
+        write_4k_samples: vec![],
+        thread_results: vec![],
+        full_seq_samples: vec![],
+        scenario_samples: vec![],
+        scenario_total_io: None,
+        scenario_score: None,
+        score: None,
+        grade: None,
+        duration_ms: 0,
+        full_written_gb: 0.0,
+    };
+
+    let run_outcome: Result<()> = (|| {
+        match config.mode.as_str() {
+            "multithread" => {
+                let seq = sequential_wtgb(&temp_file_str, WTGB_SEQ_DURATION)?;
+                let r4k = random_4k_single_wtgb(&temp_file_str)?;
+                let mt = random_4k_multithread_curve(&temp_file_str)?;
+                let (score, grade) = compute_wtgb_score(seq.0, r4k.1);
+
+                result.write_seq = seq.0;
+                result.full_seq_samples = seq.1;
+                result.full_written_gb = seq.2 as f64 / GIB;
+                result.write_4k = r4k.1;
+                result.write_4k_raw = Some(r4k.0);
+                result.write_4k_adjusted = Some(r4k.1);
+                result.write_4k_samples = r4k.2;
+                result.thread_results = mt;
+                result.score = Some(score);
+                result.grade = Some(grade);
+            }
+            "fullwrite" => {
+                let free = get_free_bytes(target_root);
+                let target = free.saturating_sub(FULL_RESERVED_BYTES);
+                let aligned = (target / FULL_IO_BYTES) * FULL_IO_BYTES;
+                if aligned < FULL_IO_BYTES {
+                    return Err(crate::AppError::InvalidParameter(
+                        "Not enough free space for full benchmark (needs at least ~64MB)".into(),
+                    ));
+                }
+                let seq = sequential_full(&temp_file_str, aligned)?;
+                result.write_seq = seq.0;
+                result.full_seq_samples = seq.1;
+                result.full_written_gb = seq.2 as f64 / GIB;
+            }
+            "full" => {
+                let seq = sequential_wtgb(&temp_file_str, WTGB_EXTREME_DURATION)?;
+                let r4k = random_4k_single_wtgb(&temp_file_str)?;
+                let (score, grade) = compute_wtgb_score(seq.0, r4k.1);
+
+                result.write_seq = seq.0;
+                result.full_seq_samples = seq.1;
+                result.full_written_gb = seq.2 as f64 / GIB;
+                result.write_4k = r4k.1;
+                result.write_4k_raw = Some(r4k.0);
+                result.write_4k_adjusted = Some(r4k.1);
+                result.write_4k_samples = r4k.2;
+                result.score = Some(score);
+                result.grade = Some(grade);
+            }
+            "scenario" => {
+                let (total_io, trend) = scenario_benchmark(&temp_file_str)?;
+                result.scenario_total_io = Some(total_io);
+                result.scenario_score = Some(total_io as f64 / 1000.0);
+                result.scenario_samples = trend;
+            }
+            _ => {
+                // quick
+                let seq = sequential_wtgb_with_ring(
+                    &temp_file_str,
+                    WTGB_QUICK_SEQ_DURATION,
+                    WTGB_QUICK_SEQ_RING_BYTES,
+                )?;
+                let r4k = random_4k_single_wtgb_with_points(&temp_file_str, WTGB_QUICK_4K_POINTS)?;
+                let (score, grade) = compute_wtgb_score(seq.0, r4k.1);
+
+                result.write_seq = seq.0;
+                result.full_seq_samples = seq.1;
+                result.full_written_gb = seq.2 as f64 / GIB;
+                result.write_4k = r4k.1;
+                result.write_4k_raw = Some(r4k.0);
+                result.write_4k_adjusted = Some(r4k.1);
+                result.write_4k_samples = r4k.2;
+                result.score = Some(score);
+                result.grade = Some(grade);
+            }
+        }
+        ensure_not_cancelled()?;
+        Ok(())
+    })();
+
+    if let Err(e) = run_outcome {
+        let _ = std::fs::remove_file(&temp_file_str);
+        clear_cancel_flag();
+        return Err(e);
+    }
+
+    result.write_seq = round1(result.write_seq);
+    result.write_4k = round1(result.write_4k);
+    result.write_4k_raw = result.write_4k_raw.map(round1);
+    result.write_4k_adjusted = result.write_4k_adjusted.map(round1);
+    result.full_written_gb = round1(result.full_written_gb);
+    result.score = result.score.map(round1);
+    result.scenario_score = result.scenario_score.map(round1);
+    result.thread_results = result
+        .thread_results
+        .into_iter()
+        .map(|mut x| {
+            x.mb_s = round1(x.mb_s);
+            x
+        })
+        .collect();
+    result.duration_ms = start.elapsed().as_millis() as u64;
+
+    let _ = std::fs::remove_file(&temp_file_str);
+    clear_cancel_flag();
+    Ok(result)
 }

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '../services/store'
-import type { WtgConfig, ImageType, WriteProgress } from '../types'
+import type { Disk, WtgConfig, ImageType, WriteProgress, MacosTargetWritableCheck } from '../types'
 import { writeApi } from '../services/api'
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
@@ -82,8 +82,26 @@ function WritePage() {
     setError,
   } = useAppStore()
   const [showEraseConfirmModal, setShowEraseConfirmModal] = useState(false)
+  const [showNtfsSafetyModal, setShowNtfsSafetyModal] = useState(false)
   const [eraseConfirmCountdown, setEraseConfirmCountdown] = useState(0)
+  const [macosWritableCheck, setMacosWritableCheck] = useState<MacosTargetWritableCheck | null>(null)
+  const [macosPrecheckRunning, setMacosPrecheckRunning] = useState(false)
+  const [ntfsRemountRunning, setNtfsRemountRunning] = useState(false)
   const isMacHost = (systemInfo?.os || '').toLowerCase() === 'macos'
+
+  const buildTargetDisk = (): Disk | null => {
+    if (!selectedDisk) return null
+    return {
+      id: selectedDisk.id,
+      name: selectedDisk.name,
+      size: selectedDisk.size,
+      removable: selectedDisk.removable,
+      device: selectedDisk.device,
+      drive_type: selectedDisk.drive_type || '',
+      index: selectedDisk.index || '0',
+      volume: selectedDisk.volume || '',
+    }
+  }
 
   // Set up event listener for real-time progress updates
   useEffect(() => {
@@ -130,22 +148,16 @@ function WritePage() {
       return
     }
 
+    const targetDisk = buildTargetDisk()
+    if (!targetDisk) return
+
     const imageType = getImageType(imagePath)
 
     const config: WtgConfig = {
       image_path: imagePath,
       image_type: imageType,
       wim_index: selectedWimIndex,
-      target_disk: {
-        id: selectedDisk.id,
-        name: selectedDisk.name,
-        size: selectedDisk.size,
-        removable: selectedDisk.removable,
-        device: selectedDisk.device,
-        drive_type: selectedDisk.drive_type || '',
-        index: selectedDisk.index || '0',
-        volume: selectedDisk.volume || '',
-      },
+      target_disk: targetDisk,
       boot_mode: bootMode,
       apply_mode: applyMode,
       partition_config: {
@@ -185,9 +197,59 @@ function WritePage() {
     }
   }
 
-  const handleStartWriteClick = () => {
+  const handleStartWriteClick = async () => {
     if (!selectedDisk || !imagePath) return
+    if (!isMacHost) {
+      setShowEraseConfirmModal(true)
+      return
+    }
+
+    const willRebuildPartitionTable = extraFeatures.repartition || !extraFeatures.do_not_format
+    if (willRebuildPartitionTable) {
+      setMacosWritableCheck(null)
+      setShowNtfsSafetyModal(false)
+      setShowEraseConfirmModal(true)
+      return
+    }
+
+    const targetDisk = buildTargetDisk()
+    if (!targetDisk) return
+
+    try {
+      setMacosPrecheckRunning(true)
+      setError(null)
+      const check = await writeApi.checkMacosTargetWritable(targetDisk)
+      setMacosWritableCheck(check)
+      if (check.needs_ntfs_remount) {
+        setShowNtfsSafetyModal(true)
+        return
+      }
+    } catch (err) {
+      setError(String(err))
+      return
+    } finally {
+      setMacosPrecheckRunning(false)
+    }
+
     setShowEraseConfirmModal(true)
+  }
+
+  const handleConfirmNtfsRemount = async () => {
+    const targetDisk = buildTargetDisk()
+    if (!targetDisk) return
+
+    try {
+      setNtfsRemountRunning(true)
+      setError(null)
+      const check = await writeApi.remountMacosTargetNtfsWritable(targetDisk)
+      setMacosWritableCheck(check)
+      setShowNtfsSafetyModal(false)
+      setShowEraseConfirmModal(true)
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setNtfsRemountRunning(false)
+    }
   }
 
   const handleConfirmStartWrite = async () => {
@@ -291,10 +353,10 @@ function WritePage() {
         {!isWriting && !isCompleted && (
           <button
             className="btn-primary btn-start"
-            onClick={handleStartWriteClick}
-            disabled={!selectedDisk || !imagePath}
+            onClick={() => void handleStartWriteClick()}
+            disabled={!selectedDisk || !imagePath || macosPrecheckRunning || ntfsRemountRunning}
           >
-            {t('write.startWrite')}
+            {macosPrecheckRunning ? t('safety.ntfsPreWriteChecking') : t('write.startWrite')}
           </button>
         )}
 
@@ -332,6 +394,39 @@ function WritePage() {
               <button
                 className="btn-secondary"
                 onClick={() => setShowEraseConfirmModal(false)}
+              >
+                {t('safety.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNtfsSafetyModal && (
+        <div className="safety-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ntfs-prewrite-title">
+          <div className="safety-modal">
+            <h2 id="ntfs-prewrite-title">{t('safety.ntfsPreWriteTitle')}</h2>
+            <p>{t('safety.ntfsPreWriteBody')}</p>
+            <p className="safety-modal-note">{t('safety.ntfsPreWriteImpact')}</p>
+            {macosWritableCheck?.mount_point ? (
+              <p className="safety-modal-note">
+                {t('safety.ntfsPreWriteTarget')}: {macosWritableCheck.mount_point}
+              </p>
+            ) : null}
+            <div className="safety-modal-actions">
+              <button
+                className="btn-danger"
+                onClick={() => void handleConfirmNtfsRemount()}
+                disabled={ntfsRemountRunning}
+              >
+                {ntfsRemountRunning
+                  ? t('safety.ntfsPreWriteAuthorizing')
+                  : t('safety.ntfsPreWriteContinue')}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setShowNtfsSafetyModal(false)}
+                disabled={ntfsRemountRunning}
               >
                 {t('safety.cancel')}
               </button>

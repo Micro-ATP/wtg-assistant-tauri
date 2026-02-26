@@ -14,11 +14,15 @@ export const HomeIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor
   </svg>
 )
 
-// Settings Icon
+// Configure Icon (Pen Nib)
 export const SettingsIcon: React.FC<IconProps> = ({ size = 24, color = 'currentColor', className }) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" className={className}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 1v6m0 6v6m4.22-15.22l-4.24 4.24m-5.96 5.96l-4.24 4.24m15.96-4.24l4.24 4.24m-4.24-15.96l4.24-4.24" />
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <g transform="rotate(-35 12 12)">
+      <rect x="9.6" y="2.6" width="4.8" height="4.2" rx="1.1" />
+      <path d="M12 6.8L17.2 12.4 12 21 6.8 12.4 12 6.8Z" />
+      <circle cx="12" cy="11.8" r="1.35" />
+      <path d="M10 14.9h4" />
+    </g>
   </svg>
 )
 

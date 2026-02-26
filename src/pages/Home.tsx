@@ -5,12 +5,18 @@ import './Home.css'
 
 type HomeTargetPage = 'configure' | 'benchmark' | 'tools'
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+function formatMemoryCapacity(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '--'
+
+  const gib = bytes / (1024 ** 3)
+  const roundedGb = Math.round(gib)
+
+  // Only force integer when the measured value is already very close.
+  if (Math.abs(gib - roundedGb) <= 0.08) {
+    return `${roundedGb} GB`
+  }
+
+  return `${gib.toFixed(1)} GB`
 }
 
 function HomePage() {
@@ -56,7 +62,7 @@ function HomePage() {
         { key: 'version', label: t('home.version'), value: systemInfo.version },
         { key: 'arch', label: t('home.architecture'), value: systemInfo.arch },
         { key: 'cpu', label: t('home.cpuModel'), value: systemInfo.cpu_model },
-        { key: 'memory', label: t('home.memoryCapacity'), value: formatBytes(systemInfo.total_memory) },
+        { key: 'memory', label: t('home.memoryCapacity'), value: formatMemoryCapacity(systemInfo.total_memory) },
       ].filter((row) => String(row.label ?? '').trim() && String(row.value ?? '').trim())
     : []
 

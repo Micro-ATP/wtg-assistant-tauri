@@ -8,6 +8,7 @@ use sysinfo::System;
 #[cfg(target_os = "windows")]
 use {
     serde::Deserialize,
+    windows::Win32::System::SystemInformation::GetPhysicallyInstalledSystemMemory,
     winreg::{enums::HKEY_LOCAL_MACHINE, RegKey},
     wmi::{COMLibrary, WMIConnection},
 };
@@ -38,8 +39,15 @@ pub fn get_os_version() -> String {
 }
 
 pub fn get_total_memory() -> u64 {
-    let sys = System::new_all();
-    sys.total_memory()
+    #[cfg(target_os = "windows")]
+    if let Some(installed) = get_installed_memory_from_api() {
+        return installed;
+    }
+
+    get_total_memory_detailed().unwrap_or_else(|| {
+        let sys = System::new_all();
+        sys.total_memory()
+    })
 }
 
 pub fn get_available_memory() -> u64 {
@@ -121,6 +129,45 @@ fn get_os_version_detailed() -> Option<String> {
 
 #[cfg(not(target_os = "windows"))]
 fn get_os_version_detailed() -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn get_total_memory_detailed() -> Option<u64> {
+    #[derive(Deserialize, Debug)]
+    struct Win32PhysicalMemory {
+        #[serde(rename = "Capacity")]
+        capacity: Option<String>,
+    }
+
+    let com = COMLibrary::new().ok()?;
+    let wmi_con = WMIConnection::new(com.into()).ok()?;
+    let memories: Vec<Win32PhysicalMemory> =
+        wmi_con.raw_query("SELECT Capacity FROM Win32_PhysicalMemory").ok()?;
+
+    let total = memories
+        .into_iter()
+        .filter_map(|m| m.capacity)
+        .filter_map(|v| v.trim().parse::<u64>().ok())
+        .sum::<u64>();
+
+    if total > 0 { Some(total) } else { None }
+}
+
+#[cfg(target_os = "windows")]
+fn get_installed_memory_from_api() -> Option<u64> {
+    let mut total_kb: u64 = 0;
+    // SAFETY: The Windows API writes to the provided pointer and does not retain it.
+    let ok = unsafe { GetPhysicallyInstalledSystemMemory(&mut total_kb) }.is_ok();
+    if ok && total_kb > 0 {
+        Some(total_kb.saturating_mul(1024))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_total_memory_detailed() -> Option<u64> {
     None
 }
 

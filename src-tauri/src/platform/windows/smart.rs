@@ -488,6 +488,7 @@ fn parse_ata_smart_tables(
         let id = attr_data[i];
         if id == 0 {
             continue;
+            
         }
 
         let current = attr_data[i + 3];

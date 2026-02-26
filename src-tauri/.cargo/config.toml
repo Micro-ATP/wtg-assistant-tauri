@@ -1,2 +1,2 @@
 [build]
-target-dir = "target-user"
+target-dir = "target-dev"

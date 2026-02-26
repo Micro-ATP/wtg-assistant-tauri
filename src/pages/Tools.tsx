@@ -317,10 +317,12 @@ function ToolsPage() {
   const [macosPluginsError, setMacosPluginsError] = useState<string | null>(null)
   const [selectedMacosPluginId, setSelectedMacosPluginId] = useState('')
   const [macosInstallRunning, setMacosInstallRunning] = useState(false)
+  const [macosInstallStarting, setMacosInstallStarting] = useState(false)
   const [macosInstallActivePluginId, setMacosInstallActivePluginId] = useState('')
   const [macosInstallMessage, setMacosInstallMessage] = useState<string | null>(null)
   const [macosInstallLogs, setMacosInstallLogs] = useState<string[]>([])
   const terminalRef = useRef<HTMLDivElement | null>(null)
+  const installStartLockRef = useRef(false)
   const isMacPlatform = typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent)
 
   // Keep tool order stable: newer tools should be appended at the end.
@@ -585,6 +587,7 @@ function ToolsPage() {
         return MACOS_PLUGIN_PLACEHOLDERS[0]?.id || ''
       })
       setMacosInstallRunning(false)
+      setMacosInstallStarting(false)
       setMacosInstallActivePluginId('')
       setMacosPluginsError(null)
       setMacosPluginsLoading(false)
@@ -600,6 +603,7 @@ function ToolsPage() {
       ])
       setMacosPlugins(plugins)
       setMacosInstallRunning(status.running)
+      setMacosInstallStarting(false)
       setMacosInstallActivePluginId(status.plugin_id || '')
       setSelectedMacosPluginId((prev) => {
         if (prev && plugins.some((plugin) => plugin.id === prev)) return prev
@@ -614,18 +618,26 @@ function ToolsPage() {
   }
 
   const handleStartMacosPluginInstall = async () => {
-    if (!selectedMacosPluginId || macosInstallRunning || !isMacPlatform) return
+    if (!selectedMacosPluginId || macosInstallRunning || macosInstallStarting || !isMacPlatform) return
+    if (installStartLockRef.current) return
+    installStartLockRef.current = true
     try {
       setMacosPluginsError(null)
       setMacosInstallMessage(null)
+      setMacosInstallStarting(true)
+      setMacosInstallRunning(true)
+      setMacosInstallActivePluginId(selectedMacosPluginId)
       const selectedName = macosPlugins.find((plugin) => plugin.id === selectedMacosPluginId)?.name || selectedMacosPluginId
       appendInstallLog(`$ install ${selectedName}`)
       const message = await toolsApi.startMacosPluginInstall(selectedMacosPluginId)
       setMacosInstallMessage(message)
-      setMacosInstallRunning(true)
-      setMacosInstallActivePluginId(selectedMacosPluginId)
     } catch (err) {
+      setMacosInstallRunning(false)
+      setMacosInstallStarting(false)
+      setMacosInstallActivePluginId('')
       setMacosPluginsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      installStartLockRef.current = false
     }
   }
 
@@ -647,10 +659,11 @@ function ToolsPage() {
   }, [activeTool])
 
   useEffect(() => {
+    let disposed = false
     let unlisten: (() => void) | null = null
 
     const bindEvents = async () => {
-      unlisten = await listen<MacosPluginInstallEvent>('macos-plugin-install-log', (event) => {
+      const un = await listen<MacosPluginInstallEvent>('macos-plugin-install-log', (event) => {
         const payload = event.payload
         const stream = payload.stream || 'system'
         const phase = payload.phase || ''
@@ -658,6 +671,7 @@ function ToolsPage() {
         appendInstallLog(`${prefix} ${payload.line}`)
 
         if (phase === 'started') {
+          setMacosInstallStarting(false)
           setMacosInstallRunning(true)
           setMacosInstallActivePluginId(payload.plugin_id || '')
           setMacosInstallMessage(null)
@@ -665,6 +679,7 @@ function ToolsPage() {
         }
 
         if (phase === 'finished') {
+          setMacosInstallStarting(false)
           setMacosInstallRunning(false)
           setMacosInstallActivePluginId('')
           if (payload.success) {
@@ -676,10 +691,16 @@ function ToolsPage() {
           void loadMacosPlugins()
         }
       })
+      if (disposed) {
+        un()
+      } else {
+        unlisten = un
+      }
     }
 
     void bindEvents()
     return () => {
+      disposed = true
       if (unlisten) unlisten()
     }
     // Keep single listener for the whole page lifecycle.
@@ -1028,7 +1049,7 @@ function ToolsPage() {
               <h2>{tr('tools.macosPluginsTitle', 'macOS 插件安装')}</h2>
               <p>{tr('tools.macosPluginsSubtitle', '每次安装一个插件，安装输出会实时显示在下方终端窗口。')}</p>
             </div>
-            <button className="btn-refresh" onClick={() => void loadMacosPlugins()} disabled={!isMacPlatform || macosPluginsLoading || macosInstallRunning} type="button">
+            <button className="btn-refresh" onClick={() => void loadMacosPlugins()} disabled={!isMacPlatform || macosPluginsLoading || macosInstallRunning || macosInstallStarting} type="button">
               {macosPluginsLoading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
             </button>
           </div>
@@ -1064,7 +1085,7 @@ function ToolsPage() {
                       name="macos-plugin"
                       checked={selectedMacosPluginId === plugin.id}
                       onChange={() => setSelectedMacosPluginId(plugin.id)}
-                      disabled={!isMacPlatform || macosInstallRunning}
+                      disabled={!isMacPlatform || macosInstallRunning || macosInstallStarting}
                     />
                     <div>
                       <strong>{plugin.name}</strong>
@@ -1089,14 +1110,14 @@ function ToolsPage() {
             <button
               className="btn-primary"
               onClick={() => void handleStartMacosPluginInstall()}
-              disabled={!isMacPlatform || !selectedMacosPluginId || macosInstallRunning || !macosPlugins.length}
+              disabled={!isMacPlatform || !selectedMacosPluginId || macosInstallRunning || macosInstallStarting || !macosPlugins.length}
               type="button"
             >
-              {macosInstallRunning
+              {(macosInstallRunning || macosInstallStarting)
                 ? tr('tools.pluginInstalling', '安装中...')
                 : tr('tools.pluginInstallStart', '开始安装')}
             </button>
-            {macosInstallRunning && macosInstallActivePluginId ? (
+            {(macosInstallRunning || macosInstallStarting) && macosInstallActivePluginId ? (
               <span className="tool-hint">
                 {tr('tools.pluginInstallingNow', '当前安装')}: {macosInstallActivePluginId}
               </span>

@@ -105,6 +105,53 @@ fn build_shell_command(script: &str) -> Command {
     cmd
 }
 
+fn shell_escape_single_quotes(raw: &str) -> String {
+    raw.replace('\'', "'\"'\"'")
+}
+
+fn running_as_root() -> bool {
+    run_shell_capture("id -u")
+        .map(|v| v.trim() == "0")
+        .unwrap_or(false)
+}
+
+fn detect_console_user() -> Option<String> {
+    if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+        let v = sudo_user.trim();
+        if !v.is_empty() && v != "root" {
+            return Some(v.to_string());
+        }
+    }
+
+    let from_console = run_shell_capture("stat -f%Su /dev/console")
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
+    if from_console.is_empty() || from_console == "root" {
+        return None;
+    }
+    Some(from_console)
+}
+
+fn build_user_shell_command(script: &str) -> Result<Command> {
+    if !running_as_root() {
+        return Ok(build_shell_command(script));
+    }
+
+    let user = detect_console_user().ok_or_else(|| {
+        AppError::SystemError(
+            "Installer is running as root, but no non-root console user was found.".to_string(),
+        )
+    })?;
+
+    let path = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
+    let escaped_script = shell_escape_single_quotes(script);
+    let payload = format!("export PATH='{}'; /bin/sh -lc '{}'", path, escaped_script);
+
+    let mut cmd = Command::new("su");
+    cmd.args(["-", &user, "-c", &payload]);
+    Ok(cmd)
+}
+
 fn run_shell_success(script: &str) -> bool {
     build_shell_command(script)
         .status()
@@ -223,7 +270,7 @@ fn run_install_command_with_streaming(
     plugin: &PluginSpec,
     app_handle: &tauri::AppHandle,
 ) -> Result<i32> {
-    let mut child = build_shell_command(plugin.install_cmd)
+    let mut child = build_user_shell_command(plugin.install_cmd)?
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

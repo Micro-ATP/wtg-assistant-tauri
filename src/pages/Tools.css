@@ -95,6 +95,42 @@
   color: var(--color-text-secondary);
 }
 
+.hardware-overview {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-medium);
+  background: var(--color-background-secondary);
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.hardware-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: var(--spacing-sm);
+  align-items: start;
+  padding: 6px 4px;
+  border-radius: var(--radius-small);
+}
+
+.hardware-row + .hardware-row {
+  border-top: 1px dashed var(--color-border-subtle);
+}
+
+.hardware-row > span {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hardware-row > div p {
+  margin: 0;
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
 .disk-diag-layout {
   margin-top: var(--spacing-md);
   display: grid;
@@ -474,6 +510,11 @@ html[data-theme="light"] .disk-row.selected .disk-row-main span {
 }
 
 @media (max-width: 640px) {
+  .hardware-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
   .detail-grid,
   .reliability-grid {
     grid-template-columns: 1fr;

@@ -142,8 +142,9 @@ fn get_total_memory_detailed() -> Option<u64> {
 
     let com = COMLibrary::new().ok()?;
     let wmi_con = WMIConnection::new(com.into()).ok()?;
-    let memories: Vec<Win32PhysicalMemory> =
-        wmi_con.raw_query("SELECT Capacity FROM Win32_PhysicalMemory").ok()?;
+    let memories: Vec<Win32PhysicalMemory> = wmi_con
+        .raw_query("SELECT Capacity FROM Win32_PhysicalMemory")
+        .ok()?;
 
     let total = memories
         .into_iter()
@@ -151,7 +152,11 @@ fn get_total_memory_detailed() -> Option<u64> {
         .filter_map(|v| v.trim().parse::<u64>().ok())
         .sum::<u64>();
 
-    if total > 0 { Some(total) } else { None }
+    if total > 0 {
+        Some(total)
+    } else {
+        None
+    }
 }
 
 #[cfg(target_os = "windows")]

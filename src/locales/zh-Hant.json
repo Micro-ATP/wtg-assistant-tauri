@@ -144,6 +144,10 @@
   "tools": {
     "title": "小工具",
     "subtitle": "實用工具集合",
+    "hardwareInfo": "硬體資訊",
+    "hardwareInfoDesc": "查看處理器、主機板、記憶體、顯示卡、磁碟與網卡等硬體概覽。",
+    "hardwareInfoTitle": "硬體資訊",
+    "hardwareInfoSubtitle": "快速查看目前裝置的核心硬體清單。",
     "diskInfo": "磁碟資訊檢視",
     "diskInfoDesc": "顯示目前所選磁碟的容量與媒體類型。",
     "diskInfoTitle": "磁碟資訊與 SMART 診斷",
@@ -331,6 +335,16 @@
       "248": "FTL 寫入 NAND 頁面計數",
       "249": "NAND 寫入量（1GiB）",
       "250": "讀取錯誤重試率"
+    },
+    "hw": {
+      "processor": "處理器",
+      "motherboard": "主機板",
+      "memory": "記憶體",
+      "graphics": "顯示卡",
+      "monitor": "顯示器",
+      "disk": "磁碟",
+      "audio": "音效",
+      "network": "網卡"
     }
   },
   "settingsPage": {

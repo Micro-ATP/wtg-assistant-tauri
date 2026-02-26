@@ -201,6 +201,17 @@ export interface DiskDiagnostics {
   notes: string[]
 }
 
+export interface HardwareOverview {
+  processors: string[]
+  motherboard: string
+  memory_summary: string
+  graphics: string[]
+  monitors: string[]
+  disks: string[]
+  audio_devices: string[]
+  network_adapters: string[]
+}
+
 export interface UsbDevice {
   id: string
   name: string

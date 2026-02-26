@@ -140,6 +140,10 @@
   "tools": {
     "title": "Tools",
     "subtitle": "Utility Toolbox",
+    "hardwareInfo": "Hardware Info",
+    "hardwareInfoDesc": "View an overview of CPU, motherboard, memory, GPU, disks, and network adapters.",
+    "hardwareInfoTitle": "Hardware Information",
+    "hardwareInfoSubtitle": "Quick overview of the current device hardware inventory.",
     "diskInfo": "Disk Info Viewer",
     "diskInfoDesc": "Show capacity and media type for the currently selected disk.",
     "diskInfoTitle": "Disk Information & SMART Diagnostics",
@@ -327,6 +331,16 @@
       "248": "FTL Program NAND Pages Count",
       "249": "NAND Writes (1GiB)",
       "250": "Read Error Retry Rate"
+    },
+    "hw": {
+      "processor": "Processor",
+      "motherboard": "Motherboard",
+      "memory": "Memory",
+      "graphics": "Graphics",
+      "monitor": "Monitor",
+      "disk": "Disk",
+      "audio": "Audio",
+      "network": "Network"
     }
   },
   "settingsPage": {

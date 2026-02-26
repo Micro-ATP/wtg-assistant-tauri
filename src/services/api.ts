@@ -9,6 +9,7 @@ import type {
   DiskDiagnostics,
   PartitionInfo,
   BootRepairFirmware,
+  HardwareOverview,
 } from '@/types'
 
 /**
@@ -206,6 +207,16 @@ export const toolsApi = {
       return result
     } catch (error) {
       console.error('Failed to repair boot:', error)
+      throw error
+    }
+  },
+
+  getHardwareOverview: async (): Promise<HardwareOverview> => {
+    try {
+      const result = await invoke<HardwareOverview>('get_hardware_overview')
+      return result
+    } catch (error) {
+      console.error('Failed to get hardware overview:', error)
       throw error
     }
   },

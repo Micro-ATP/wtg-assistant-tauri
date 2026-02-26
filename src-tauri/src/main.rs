@@ -50,6 +50,7 @@ fn main() {
             commands::benchmark::cancel_benchmark,
             commands::partition::list_partitions,
             commands::tools::repair_boot,
+            commands::tools::get_hardware_overview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

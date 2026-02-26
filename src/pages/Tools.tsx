@@ -3,10 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { RefreshIcon, SpinnerIcon } from '../components/Icons'
 import { diskApi, toolsApi } from '../services/api'
 import { useAppStore } from '../services/store'
-import type { BootRepairFirmware, DiskDiagnostics, PartitionInfo } from '../types'
+import type { BootRepairFirmware, DiskDiagnostics, HardwareOverview, PartitionInfo } from '../types'
 import './Tools.css'
 
-type ToolKey = 'diskInfo' | 'bootRepair' | 'capacityCalc'
+type ToolKey = 'hardwareInfo' | 'diskInfo' | 'bootRepair' | 'capacityCalc'
 type CapacityUnitKey = 'B' | 'KB' | 'MB' | 'GB' | 'TB' | 'KiB' | 'MiB' | 'GiB' | 'TiB'
 
 const CAPACITY_UNITS: Array<{ key: CapacityUnitKey; bytes: number }> = [
@@ -176,6 +176,39 @@ function formatConversion(value: number): string {
   return withGrouping(toPlainString(value))
 }
 
+function wrapHardwareText(input: string, maxLen = 56): string[] {
+  const text = (input || '').trim()
+  if (!text) return ['--']
+  if (text.length <= maxLen) return [text]
+
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized.includes(' ')) {
+    const chunks: string[] = []
+    for (let i = 0; i < normalized.length; i += maxLen) {
+      chunks.push(normalized.slice(i, i + maxLen))
+    }
+    return chunks
+  }
+
+  const words = normalized.split(' ')
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    if (!current) {
+      current = word
+      continue
+    }
+    if ((current.length + 1 + word.length) <= maxLen) {
+      current += ` ${word}`
+    } else {
+      lines.push(current)
+      current = word
+    }
+  }
+  if (current) lines.push(current)
+  return lines.length ? lines : [normalized]
+}
+
 function partitionOptionLabel(partition: PartitionInfo): string {
   const osName = partition.windows_name?.trim() || 'Windows'
   return `${partition.drive_letter}:\\  ${osName}`
@@ -197,6 +230,9 @@ function ToolsPage() {
   const [error, setError] = useState<string | null>(null)
   const [diagnostics, setDiagnostics] = useState<DiskDiagnostics[]>([])
   const [selectedDiagId, setSelectedDiagId] = useState<string>('')
+  const [hardwareLoading, setHardwareLoading] = useState(false)
+  const [hardwareError, setHardwareError] = useState<string | null>(null)
+  const [hardware, setHardware] = useState<HardwareOverview | null>(null)
 
   const [partitions, setPartitions] = useState<PartitionInfo[]>([])
   const [partitionsLoading, setPartitionsLoading] = useState(false)
@@ -211,6 +247,7 @@ function ToolsPage() {
   const [capacityFrom, setCapacityFrom] = useState<CapacityUnitKey>('GB')
   const [capacityTo, setCapacityTo] = useState<CapacityUnitKey>('GiB')
 
+  // Keep tool order stable: newer tools should be appended at the end.
   const cards: Array<{ key: ToolKey; title: string; description: string }> = [
     {
       key: 'diskInfo',
@@ -226,6 +263,11 @@ function ToolsPage() {
       key: 'capacityCalc',
       title: tr('tools.capacityCalc', '容量换算'),
       description: tr('tools.capacityCalcDesc', '在 GB / GiB 单位之间进行容量换算。'),
+    },
+    {
+      key: 'hardwareInfo',
+      title: tr('tools.hardwareInfo', '硬件信息'),
+      description: tr('tools.hardwareInfoDesc', '查看处理器、主板、内存、显卡、磁盘与网卡等硬件概览。'),
     },
   ]
 
@@ -411,6 +453,20 @@ function ToolsPage() {
     }
   }
 
+  const loadHardwareOverview = async () => {
+    try {
+      setHardwareLoading(true)
+      setHardwareError(null)
+      const result = await toolsApi.getHardwareOverview()
+      setHardware(result)
+    } catch (err) {
+      setHardwareError(err instanceof Error ? err.message : String(err))
+      setHardware(null)
+    } finally {
+      setHardwareLoading(false)
+    }
+  }
+
   const handleRepairBoot = async () => {
     if (!bootTarget) {
       setBootError(tr('tools.bootRepairTargetRequired', '请选择目标盘符后再执行引导修复。'))
@@ -431,6 +487,9 @@ function ToolsPage() {
   }
 
   useEffect(() => {
+    if (activeTool === 'hardwareInfo') {
+      void loadHardwareOverview()
+    }
     if (activeTool === 'diskInfo') {
       void loadDiagnostics()
     }
@@ -464,6 +523,78 @@ function ToolsPage() {
         </div>
         <p className="tools-hint">{tr('tools.hint', '该板块为扩展区，后续会持续新增实用工具。')}</p>
       </section>
+
+      {activeTool === 'hardwareInfo' ? (
+        <section className="tools-panel">
+          <div className="tool-panel-header">
+            <div>
+              <h2>{tr('tools.hardwareInfoTitle', '硬件信息')}</h2>
+              <p>{tr('tools.hardwareInfoSubtitle', '快速查看当前设备的核心硬件清单。')}</p>
+            </div>
+            <button className="btn-refresh" onClick={() => void loadHardwareOverview()} disabled={hardwareLoading} type="button">
+              {hardwareLoading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
+            </button>
+          </div>
+
+          {hardwareError ? <div className="error-msg">{hardwareError}</div> : null}
+
+          {hardwareLoading && !hardware ? (
+            <div className="tool-loading">
+              <SpinnerIcon size={20} />
+              <span>{t('messages.loading')}</span>
+            </div>
+          ) : null}
+
+          {hardware ? (
+            <div className="hardware-overview">
+              <div className="hardware-row">
+                <span>{tr('tools.hw.processor', '处理器')}</span>
+                <div>
+                  {(hardware.processors?.length ? hardware.processors : ['--']).flatMap((item) => wrapHardwareText(item, 54)).map((item, idx) => <p key={`cpu-${idx}-${item}`}>{item}</p>)}
+                </div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.motherboard', '主板')}</span>
+                <div>{wrapHardwareText(hardware.motherboard || '--', 54).map((item, idx) => <p key={`mb-${idx}-${item}`}>{item}</p>)}</div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.memory', '内存')}</span>
+                <div>{wrapHardwareText(hardware.memory_summary || '--', 54).map((item, idx) => <p key={`mem-${idx}-${item}`}>{item}</p>)}</div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.graphics', '显卡')}</span>
+                <div>
+                  {(hardware.graphics?.length ? hardware.graphics : ['--']).flatMap((item) => wrapHardwareText(item, 54)).map((item, idx) => <p key={`gpu-${idx}-${item}`}>{item}</p>)}
+                </div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.monitor', '显示器')}</span>
+                <div>
+                  {(hardware.monitors?.length ? hardware.monitors : ['--']).flatMap((item) => wrapHardwareText(item, 54)).map((item, idx) => <p key={`monitor-${idx}-${item}`}>{item}</p>)}
+                </div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.disk', '磁盘')}</span>
+                <div>
+                  {(hardware.disks?.length ? hardware.disks : ['--']).flatMap((item) => wrapHardwareText(item, 54)).map((item, idx) => <p key={`disk-${idx}-${item}`}>{item}</p>)}
+                </div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.audio', '声卡')}</span>
+                <div>
+                  {(hardware.audio_devices?.length ? hardware.audio_devices : ['--']).flatMap((item) => wrapHardwareText(item, 54)).map((item, idx) => <p key={`audio-${idx}-${item}`}>{item}</p>)}
+                </div>
+              </div>
+              <div className="hardware-row">
+                <span>{tr('tools.hw.network', '网卡')}</span>
+                <div>
+                  {(hardware.network_adapters?.length ? hardware.network_adapters : ['--']).flatMap((item) => wrapHardwareText(item, 54)).map((item, idx) => <p key={`nic-${idx}-${item}`}>{item}</p>)}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {activeTool === 'diskInfo' ? (
         <section className="tools-panel disk-info-panel">

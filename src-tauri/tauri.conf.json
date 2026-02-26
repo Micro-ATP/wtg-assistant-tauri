@@ -32,6 +32,9 @@
       "appimage",
       "dmg"
     ],
+    "resources": [
+      "resources/smartmontools/bin"
+    ],
     "icon": [
       "icons/icon.ico"
     ]

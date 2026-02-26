@@ -31,6 +31,7 @@ Cargo.lock
 *.AppImage
 *.msi
 !useable_software/smartmontools-7.5.win32-setup.exe
+!src-tauri/resources/smartmontools/bin/**
 
 # Logs
 logs/

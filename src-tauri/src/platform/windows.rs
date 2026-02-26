@@ -1047,7 +1047,7 @@ fn enrich_with_smartctl(diagnostics: &mut [DiskDiagnostics]) {
         for diag in diagnostics.iter_mut() {
             add_note_unique(
                 diag,
-                "smartctl not found in PATH; install smartmontools to enable extended SMART details.",
+                "smartctl not found in bundled resources or PATH; include smartmontools to enable extended SMART details.",
             );
         }
         return;
@@ -1417,27 +1417,91 @@ fn run_smartctl_allow_fail(args: &[&str]) -> Option<String> {
 }
 
 fn smartctl_candidates() -> Vec<String> {
-    let mut candidates = vec![
-        "smartctl".to_string(),
-        "smartctl.exe".to_string(),
-        r"C:\Program Files\smartmontools\bin\smartctl.exe".to_string(),
-        r"C:\Program Files (x86)\smartmontools\bin\smartctl.exe".to_string(),
-    ];
+    let mut candidates = Vec::new();
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            push_candidate_path(&mut candidates, dir.join("smartctl.exe"));
-            push_candidate_path(&mut candidates, dir.join("smartmontools").join("bin").join("smartctl.exe"));
-            push_candidate_path(&mut candidates, dir.join("resources").join("smartctl").join("smartctl.exe"));
+            // Prefer bundled smartmontools shipped with the app.
+            push_candidate_path(
+                &mut candidates,
+                dir.join("smartmontools")
+                    .join("bin")
+                    .join("smartctl.exe"),
+            );
+            push_candidate_path(
+                &mut candidates,
+                dir.join("resources")
+                    .join("smartmontools")
+                    .join("bin")
+                    .join("smartctl.exe"),
+            );
+            push_candidate_path(
+                &mut candidates,
+                dir.join("..")
+                    .join("resources")
+                    .join("smartmontools")
+                    .join("bin")
+                    .join("smartctl.exe"),
+            );
+
+            // Backward compatibility for old bundled layout.
+            push_candidate_path(
+                &mut candidates,
+                dir.join("resources").join("smartctl").join("smartctl.exe"),
+            );
             push_candidate_path(
                 &mut candidates,
                 dir.join("..").join("resources").join("smartctl").join("smartctl.exe"),
             );
+            push_candidate_path(&mut candidates, dir.join("smartctl.exe"));
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        // Repository/dev layout convenience.
+        push_candidate_path(
+            &mut candidates,
+            cwd.join("src-tauri")
+                .join("resources")
+                .join("smartmontools")
+                .join("bin")
+                .join("smartctl.exe"),
+        );
+        push_candidate_path(
+            &mut candidates,
+            cwd.join("smartmontools").join("bin").join("smartctl.exe"),
+        );
+        push_candidate_path(
+            &mut candidates,
+            cwd.join("useable_software")
+                .join("smartmontools")
+                .join("bin")
+                .join("smartctl.exe"),
+        );
+    }
+
+    // PATH and global installs as fallback.
+    candidates.extend([
+        "smartctl".to_string(),
+        "smartctl.exe".to_string(),
+        r"C:\Program Files\smartmontools\bin\smartctl.exe".to_string(),
+        r"C:\Program Files (x86)\smartmontools\bin\smartctl.exe".to_string(),
+    ]);
+
+    // Keep only existing absolute/relative paths; retain command names.
+    let mut filtered = Vec::new();
+    for c in candidates {
+        if c.contains('\\') || c.contains('/') {
+            if std::path::Path::new(&c).exists() {
+                filtered.push(c);
+            }
+        } else {
+            filtered.push(c);
         }
     }
 
     let mut seen = std::collections::HashSet::new();
-    candidates
+    filtered
         .into_iter()
         .filter(|s| seen.insert(s.to_ascii_lowercase()))
         .collect()

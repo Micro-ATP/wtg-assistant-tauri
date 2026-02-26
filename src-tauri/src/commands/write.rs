@@ -1,9 +1,9 @@
 //! Write commands - Tauri command handlers for write operations
 
 use crate::models::{ImageInfo, WriteProgress, WtgConfig};
-use crate::utils::progress::PROGRESS_REPORTER;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use crate::services;
+use crate::utils::progress::PROGRESS_REPORTER;
 use crate::utils::task_manager;
 #[cfg(not(target_os = "windows"))]
 use crate::AppError;
@@ -25,11 +25,23 @@ pub async fn get_image_info(image_path: String) -> Result<Vec<ImageInfo>> {
         return Ok(info);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let image_path_for_task = image_path.clone();
+        let info = tokio::task::spawn_blocking(move || {
+            services::write_macos::get_image_info(&image_path_for_task)
+        })
+        .await
+        .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
+
+        return Ok(info);
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = image_path;
         Err(AppError::Unsupported(
-            "Image parsing is currently implemented on Windows only".to_string(),
+            "Image parsing is currently implemented on Windows/macOS only".to_string(),
         ))
     }
 }
@@ -63,11 +75,30 @@ pub async fn start_write(config: WtgConfig, app_handle: tauri::AppHandle) -> Res
         return Ok(progress);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        PROGRESS_REPORTER.set_app_handle(app_handle);
+
+        let app_files_path = std::env::temp_dir()
+            .join("WTGA")
+            .to_string_lossy()
+            .to_string();
+        let _ = std::fs::create_dir_all(&app_files_path);
+
+        let progress = tokio::task::spawn_blocking(move || {
+            services::write_macos::execute_write(&config, &app_files_path)
+        })
+        .await
+        .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
+
+        return Ok(progress);
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (config, app_handle);
         Err(AppError::Unsupported(
-            "Write operation is currently implemented on Windows only".to_string(),
+            "Write operation is currently implemented on Windows/macOS only".to_string(),
         ))
     }
 }

@@ -22,7 +22,7 @@ Windows To Go Assistant helps you deploy a Windows image to a USB drive and crea
 
 ## Before You Start
 
-- Current version: `V0.0.3-Alpha`
+- Current version: `V0.0.5-Alpha`
 - The app is still in Alpha stage.
 - Write operations can repartition/format disks and permanently erase data.
 - Always make a full backup before using this tool.

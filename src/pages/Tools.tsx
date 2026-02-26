@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { listen } from '@tauri-apps/api/event'
 import { RefreshIcon, SpinnerIcon } from '../components/Icons'
 import { diskApi, toolsApi } from '../services/api'
 import { useAppStore } from '../services/store'
-import type { BootRepairFirmware, DiskDiagnostics, HardwareOverview, PartitionInfo } from '../types'
+import type {
+  BootRepairFirmware,
+  DiskDiagnostics,
+  HardwareOverview,
+  MacosPluginInstallEvent,
+  MacosPluginItem,
+  PartitionInfo,
+} from '../types'
 import './Tools.css'
 
-type ToolKey = 'hardwareInfo' | 'diskInfo' | 'bootRepair' | 'capacityCalc'
+type ToolKey = 'hardwareInfo' | 'diskInfo' | 'bootRepair' | 'capacityCalc' | 'macosPlugins'
 type CapacityUnitKey = 'B' | 'KB' | 'MB' | 'GB' | 'TB' | 'KiB' | 'MiB' | 'GiB' | 'TiB'
 
 const CAPACITY_UNITS: Array<{ key: CapacityUnitKey; bytes: number }> = [
@@ -32,6 +40,45 @@ const CAPACITY_PRESETS: Array<{ label: string; value: number; unit: CapacityUnit
   { label: '4 TB', value: 4, unit: 'TB' },
   { label: '8 TB', value: 8, unit: 'TB' },
   { label: '14 TB', value: 14, unit: 'TB' },
+]
+
+const MACOS_PLUGIN_PLACEHOLDERS: MacosPluginItem[] = [
+  {
+    id: 'homebrew',
+    name: 'Homebrew',
+    description: '',
+    installed: false,
+  },
+  {
+    id: 'macfuse',
+    name: 'macFUSE',
+    description: '',
+    installed: false,
+  },
+  {
+    id: 'gromgit-homebrew-fuse',
+    name: 'gromgit/homebrew-fuse tap',
+    description: '',
+    installed: false,
+  },
+  {
+    id: 'ntfs-3g-mac',
+    name: 'ntfs-3g-mac',
+    description: '',
+    installed: false,
+  },
+  {
+    id: 'smartmontools',
+    name: 'smartmontools',
+    description: '',
+    installed: false,
+  },
+  {
+    id: 'wimlib',
+    name: 'wimlib',
+    description: '',
+    installed: false,
+  },
 ]
 
 function formatBytes(bytes: number): string {
@@ -214,6 +261,25 @@ function partitionOptionLabel(partition: PartitionInfo): string {
   return `${partition.drive_letter}:\\  ${osName}`
 }
 
+function macosPluginDescriptionKey(pluginId: string): string {
+  switch (pluginId) {
+    case 'homebrew':
+      return 'tools.macosPluginDesc.homebrew'
+    case 'macfuse':
+      return 'tools.macosPluginDesc.macfuse'
+    case 'gromgit-homebrew-fuse':
+      return 'tools.macosPluginDesc.gromgit_homebrew_fuse'
+    case 'ntfs-3g-mac':
+      return 'tools.macosPluginDesc.ntfs_3g_mac'
+    case 'smartmontools':
+      return 'tools.macosPluginDesc.smartmontools'
+    case 'wimlib':
+      return 'tools.macosPluginDesc.wimlib'
+    default:
+      return ''
+  }
+}
+
 function ToolsPage() {
   const { t } = useTranslation()
   const tr = (key: string, fallback: string): string => {
@@ -246,6 +312,16 @@ function ToolsPage() {
   const [capacityInput, setCapacityInput] = useState('64')
   const [capacityFrom, setCapacityFrom] = useState<CapacityUnitKey>('GB')
   const [capacityTo, setCapacityTo] = useState<CapacityUnitKey>('GiB')
+  const [macosPlugins, setMacosPlugins] = useState<MacosPluginItem[]>([])
+  const [macosPluginsLoading, setMacosPluginsLoading] = useState(false)
+  const [macosPluginsError, setMacosPluginsError] = useState<string | null>(null)
+  const [selectedMacosPluginId, setSelectedMacosPluginId] = useState('')
+  const [macosInstallRunning, setMacosInstallRunning] = useState(false)
+  const [macosInstallActivePluginId, setMacosInstallActivePluginId] = useState('')
+  const [macosInstallMessage, setMacosInstallMessage] = useState<string | null>(null)
+  const [macosInstallLogs, setMacosInstallLogs] = useState<string[]>([])
+  const terminalRef = useRef<HTMLDivElement | null>(null)
+  const isMacPlatform = typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent)
 
   // Keep tool order stable: newer tools should be appended at the end.
   const cards: Array<{ key: ToolKey; title: string; description: string }> = [
@@ -268,6 +344,11 @@ function ToolsPage() {
       key: 'hardwareInfo',
       title: tr('tools.hardwareInfo', '硬件信息'),
       description: tr('tools.hardwareInfoDesc', '查看处理器、主板、内存、显卡、磁盘与网卡等硬件概览。'),
+    },
+    {
+      key: 'macosPlugins',
+      title: tr('tools.macosPlugins', 'macOS 插件'),
+      description: tr('tools.macosPluginsDesc', '安装 Homebrew 及相关依赖，并实时查看安装终端输出。'),
     },
   ]
 
@@ -486,6 +567,68 @@ function ToolsPage() {
     }
   }
 
+  const appendInstallLog = (line: string) => {
+    setMacosInstallLogs((prev) => {
+      const next = [...prev, line]
+      if (next.length > 800) {
+        return next.slice(next.length - 800)
+      }
+      return next
+    })
+  }
+
+  const loadMacosPlugins = async () => {
+    if (!isMacPlatform) {
+      setMacosPlugins(MACOS_PLUGIN_PLACEHOLDERS)
+      setSelectedMacosPluginId((prev) => {
+        if (prev && MACOS_PLUGIN_PLACEHOLDERS.some((plugin) => plugin.id === prev)) return prev
+        return MACOS_PLUGIN_PLACEHOLDERS[0]?.id || ''
+      })
+      setMacosInstallRunning(false)
+      setMacosInstallActivePluginId('')
+      setMacosPluginsError(null)
+      setMacosPluginsLoading(false)
+      return
+    }
+
+    try {
+      setMacosPluginsLoading(true)
+      setMacosPluginsError(null)
+      const [plugins, status] = await Promise.all([
+        toolsApi.listMacosPlugins(),
+        toolsApi.getMacosPluginInstallStatus(),
+      ])
+      setMacosPlugins(plugins)
+      setMacosInstallRunning(status.running)
+      setMacosInstallActivePluginId(status.plugin_id || '')
+      setSelectedMacosPluginId((prev) => {
+        if (prev && plugins.some((plugin) => plugin.id === prev)) return prev
+        return plugins[0]?.id || ''
+      })
+    } catch (err) {
+      setMacosPlugins([])
+      setMacosPluginsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMacosPluginsLoading(false)
+    }
+  }
+
+  const handleStartMacosPluginInstall = async () => {
+    if (!selectedMacosPluginId || macosInstallRunning || !isMacPlatform) return
+    try {
+      setMacosPluginsError(null)
+      setMacosInstallMessage(null)
+      const selectedName = macosPlugins.find((plugin) => plugin.id === selectedMacosPluginId)?.name || selectedMacosPluginId
+      appendInstallLog(`$ install ${selectedName}`)
+      const message = await toolsApi.startMacosPluginInstall(selectedMacosPluginId)
+      setMacosInstallMessage(message)
+      setMacosInstallRunning(true)
+      setMacosInstallActivePluginId(selectedMacosPluginId)
+    } catch (err) {
+      setMacosPluginsError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   useEffect(() => {
     if (activeTool === 'hardwareInfo') {
       void loadHardwareOverview()
@@ -496,9 +639,58 @@ function ToolsPage() {
     if (activeTool === 'bootRepair') {
       void loadPartitions()
     }
+    if (activeTool === 'macosPlugins') {
+      void loadMacosPlugins()
+    }
     // Tool switch should lazy-load related data
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTool])
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+
+    const bindEvents = async () => {
+      unlisten = await listen<MacosPluginInstallEvent>('macos-plugin-install-log', (event) => {
+        const payload = event.payload
+        const stream = payload.stream || 'system'
+        const phase = payload.phase || ''
+        const prefix = stream === 'stdout' ? '[out]' : stream === 'stderr' ? '[err]' : '[sys]'
+        appendInstallLog(`${prefix} ${payload.line}`)
+
+        if (phase === 'started') {
+          setMacosInstallRunning(true)
+          setMacosInstallActivePluginId(payload.plugin_id || '')
+          setMacosInstallMessage(null)
+          return
+        }
+
+        if (phase === 'finished') {
+          setMacosInstallRunning(false)
+          setMacosInstallActivePluginId('')
+          if (payload.success) {
+            setMacosInstallMessage(payload.line || 'Install completed')
+            setMacosPluginsError(null)
+          } else {
+            setMacosPluginsError(payload.line || 'Install failed')
+          }
+          void loadMacosPlugins()
+        }
+      })
+    }
+
+    void bindEvents()
+    return () => {
+      if (unlisten) unlisten()
+    }
+    // Keep single listener for the whole page lifecycle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const el = terminalRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [macosInstallLogs])
 
   return (
     <div className="tools-page">
@@ -826,6 +1018,103 @@ function ToolsPage() {
               </div>
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {activeTool === 'macosPlugins' ? (
+        <section className={`tools-panel plugin-install-panel ${!isMacPlatform ? 'is-disabled' : ''}`}>
+          <div className="tool-panel-header">
+            <div>
+              <h2>{tr('tools.macosPluginsTitle', 'macOS 插件安装')}</h2>
+              <p>{tr('tools.macosPluginsSubtitle', '每次安装一个插件，安装输出会实时显示在下方终端窗口。')}</p>
+            </div>
+            <button className="btn-refresh" onClick={() => void loadMacosPlugins()} disabled={!isMacPlatform || macosPluginsLoading || macosInstallRunning} type="button">
+              {macosPluginsLoading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
+            </button>
+          </div>
+
+          {!isMacPlatform ? (
+            <div className="tool-hint disabled-hint">
+              {tr('tools.macosPluginsDisabledHint', '当前不是 macOS 环境，此工具仅展示布局，所有安装项均不可操作。')}
+            </div>
+          ) : null}
+
+          {macosPluginsError ? <div className="error-msg">{macosPluginsError}</div> : null}
+          {macosInstallMessage ? <div className="success-msg">{macosInstallMessage}</div> : null}
+
+          {isMacPlatform && macosPluginsLoading && !macosPlugins.length ? (
+            <div className="tool-loading">
+              <SpinnerIcon size={20} />
+              <span>{t('messages.loading')}</span>
+            </div>
+          ) : null}
+
+          <div className="plugin-list">
+            {macosPlugins.length ? macosPlugins.map((plugin) => {
+              const descKey = macosPluginDescriptionKey(plugin.id)
+              const localizedDesc = descKey ? tr(descKey, plugin.description || '') : (plugin.description || '')
+              return (
+                <label
+                  key={plugin.id}
+                  className={`plugin-item ${selectedMacosPluginId === plugin.id ? 'selected' : ''} ${plugin.installed ? 'installed' : ''}`}
+                >
+                  <div className="plugin-item-main">
+                    <input
+                      type="radio"
+                      name="macos-plugin"
+                      checked={selectedMacosPluginId === plugin.id}
+                      onChange={() => setSelectedMacosPluginId(plugin.id)}
+                      disabled={!isMacPlatform || macosInstallRunning}
+                    />
+                    <div>
+                      <strong>{plugin.name}</strong>
+                      <p>{localizedDesc || plugin.description}</p>
+                    </div>
+                  </div>
+                  <span className={`plugin-state ${plugin.installed ? 'installed' : 'pending'}`}>
+                    {plugin.installed ? tr('tools.pluginInstalled', '已安装') : tr('tools.pluginNotInstalled', '未安装')}
+                  </span>
+                </label>
+              )
+            }) : (
+              <div className="empty-state">
+                {isMacPlatform
+                  ? tr('tools.macosPluginsEmpty', '暂无可用插件列表。')
+                  : tr('tools.macosPluginsWinEmpty', '该平台不提供 macOS 插件安装功能。')}
+              </div>
+            )}
+          </div>
+
+          <div className="tool-actions">
+            <button
+              className="btn-primary"
+              onClick={() => void handleStartMacosPluginInstall()}
+              disabled={!isMacPlatform || !selectedMacosPluginId || macosInstallRunning || !macosPlugins.length}
+              type="button"
+            >
+              {macosInstallRunning
+                ? tr('tools.pluginInstalling', '安装中...')
+                : tr('tools.pluginInstallStart', '开始安装')}
+            </button>
+            {macosInstallRunning && macosInstallActivePluginId ? (
+              <span className="tool-hint">
+                {tr('tools.pluginInstallingNow', '当前安装')}: {macosInstallActivePluginId}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="plugin-terminal-wrap">
+            <div className="plugin-terminal-header">{tr('tools.pluginTerminal', '终端输出')}</div>
+            <div className="plugin-terminal" ref={terminalRef}>
+              {macosInstallLogs.length ? (
+                macosInstallLogs.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)
+              ) : (
+                <div className="plugin-terminal-placeholder">
+                  {tr('tools.pluginTerminalHint', '等待安装输出...')}
+                </div>
+              )}
+            </div>
+          </div>
         </section>
       ) : null}
 

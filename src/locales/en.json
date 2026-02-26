@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "Windows To Go Assistant",
-    "version": "V0.0.3-Alpha",
+    "version": "V0.0.5-Alpha",
     "home": "Home",
     "configure": "Configure",
     "write": "Write",
@@ -172,6 +172,28 @@
     "capacityResult": "Converted Result",
     "capacityInvalid": "Enter a valid number",
     "capacityHint": "KB/MB/GB/TB use decimal (1000), while KiB/MiB/GiB/TiB use binary (1024).",
+    "macosPlugins": "macOS Plugins",
+    "macosPluginsDesc": "Install macOS dependencies and view live terminal output.",
+    "macosPluginsTitle": "macOS Plugin Installer",
+    "macosPluginsSubtitle": "Install one package at a time. Output is streamed in real time below.",
+    "macosPluginsDisabledHint": "This host is not macOS. The panel is shown for layout consistency and is read-only.",
+    "pluginInstalled": "Installed",
+    "pluginNotInstalled": "Not Installed",
+    "pluginInstallStart": "Install Selected",
+    "pluginInstalling": "Installing...",
+    "pluginInstallingNow": "Installing",
+    "pluginTerminal": "Terminal Output",
+    "pluginTerminalHint": "Waiting for installer output...",
+    "macosPluginsEmpty": "No macOS plugin items available.",
+    "macosPluginsWinEmpty": "macOS plugin installer is not available on this platform.",
+    "macosPluginDesc": {
+      "homebrew": "Homebrew package manager, required by the rest of these packages.",
+      "macfuse": "Provides FUSE kernel extension support required for NTFS writable mounting.",
+      "gromgit_homebrew_fuse": "Adds the Homebrew tap that contains the ntfs-3g-mac formula.",
+      "ntfs_3g_mac": "Provides ntfs-3g so NTFS partitions can be mounted writable on macOS.",
+      "smartmontools": "Provides smartctl used for disk SMART diagnostics.",
+      "wimlib": "Provides wimlib-imagex for reading WIM/ESD/ISO image indexes."
+    },
     "hint": "This section is reserved for utilities and will be expanded with more tools.",
     "serialNumber": "Serial Number",
     "firmware": "Firmware",
@@ -390,5 +412,4 @@
     "cancel": "Cancel"
   }
 }
-
 

@@ -69,7 +69,7 @@ function SettingsPage() {
   const [updateMessage, setUpdateMessage] = useState<string>(t('settingsPage.checkingUpdate') || 'Checking for updates...')
   const [logsDir, setLogsDir] = useState<string>('')
 
-  const currentVersion = useMemo(() => t('common.version') || 'V0.0.3-Alpha', [t])
+  const currentVersion = useMemo(() => t('common.version') || 'V0.0.5-Alpha', [t])
 
   const themeOptions: Array<{ value: ThemeValue; label: string }> = [
     { value: 'light', label: t('settingsPage.themeLight') || '明亮' },

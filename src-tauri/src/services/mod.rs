@@ -10,3 +10,6 @@ pub mod image;
 pub mod vhd;
 #[cfg(target_os = "windows")]
 pub mod write;
+
+#[cfg(target_os = "macos")]
+pub mod write_macos;

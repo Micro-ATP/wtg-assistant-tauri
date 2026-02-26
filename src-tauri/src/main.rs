@@ -51,6 +51,9 @@ fn main() {
             commands::partition::list_partitions,
             commands::tools::repair_boot,
             commands::tools::get_hardware_overview,
+            commands::macos_plugins::list_macos_plugins,
+            commands::macos_plugins::get_macos_plugin_install_status,
+            commands::macos_plugins::start_macos_plugin_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

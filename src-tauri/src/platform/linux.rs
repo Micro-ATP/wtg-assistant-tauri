@@ -1,4 +1,4 @@
-use crate::commands::DiskInfo;
+use crate::commands::disk::DiskInfo;
 use crate::{AppError, Result};
 
 /// List all disks on Linux

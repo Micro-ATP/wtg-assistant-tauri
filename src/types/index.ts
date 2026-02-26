@@ -212,6 +212,28 @@ export interface HardwareOverview {
   network_adapters: string[]
 }
 
+export interface MacosPluginItem {
+  id: string
+  name: string
+  description: string
+  installed: boolean
+}
+
+export interface MacosPluginInstallStatus {
+  running: boolean
+  plugin_id?: string | null
+}
+
+export interface MacosPluginInstallEvent {
+  phase: string
+  plugin_id: string
+  plugin_name: string
+  stream: string
+  line: string
+  exit_code?: number | null
+  success?: boolean | null
+}
+
 export interface UsbDevice {
   id: string
   name: string

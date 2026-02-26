@@ -1,13 +1,13 @@
 use crate::models::FirmwareType;
+#[cfg(target_os = "windows")]
+use crate::services::{boot, diskpart};
 use crate::utils::command::CommandExecutor;
 use crate::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 #[cfg(target_os = "windows")]
-use crate::services::{boot, diskpart};
-#[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ADAPTER_DESC1, IDXGIFactory1,
+    CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_DESC1, DXGI_ADAPTER_FLAG_SOFTWARE,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::System::SystemInformation::GetPhysicallyInstalledSystemMemory;
@@ -182,7 +182,10 @@ fn get_installed_memory_bytes() -> Option<u64> {
 }
 
 #[cfg(target_os = "windows")]
-fn format_memory_summary(memories: &[Win32PhysicalMemory], fallback_total_bytes: Option<u64>) -> String {
+fn format_memory_summary(
+    memories: &[Win32PhysicalMemory],
+    fallback_total_bytes: Option<u64>,
+) -> String {
     let module_gb: Vec<u64> = memories
         .iter()
         .filter_map(|m| parse_u64_text(m.capacity.as_deref()))
@@ -210,7 +213,9 @@ fn format_memory_summary(memories: &[Win32PhysicalMemory], fallback_total_bytes:
                 format!("{total_gb}GB {mem_type} {mhz}MHz")
             }
             Some(mhz) => format!("{total_gb}GB RAM {mhz}MHz"),
-            None if mem_type != "Unknown" && mem_type != "RAM" => format!("{total_gb}GB {mem_type}"),
+            None if mem_type != "Unknown" && mem_type != "RAM" => {
+                format!("{total_gb}GB {mem_type}")
+            }
             None => format!("{total_gb}GB RAM"),
         };
     }

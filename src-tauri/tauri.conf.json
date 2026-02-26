@@ -1,6 +1,6 @@
 {
   "productName": "WTG Assistant",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "identifier": "com.wtga.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -36,6 +36,9 @@
       "resources/smartmontools/bin"
     ],
     "icon": [
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.png",
       "icons/icon.ico"
     ]
   }

@@ -10,6 +10,8 @@ import type {
   PartitionInfo,
   BootRepairFirmware,
   HardwareOverview,
+  MacosPluginItem,
+  MacosPluginInstallStatus,
 } from '@/types'
 
 /**
@@ -217,6 +219,36 @@ export const toolsApi = {
       return result
     } catch (error) {
       console.error('Failed to get hardware overview:', error)
+      throw error
+    }
+  },
+
+  listMacosPlugins: async (): Promise<MacosPluginItem[]> => {
+    try {
+      const result = await invoke<MacosPluginItem[]>('list_macos_plugins')
+      return result
+    } catch (error) {
+      console.error('Failed to list macOS plugins:', error)
+      throw error
+    }
+  },
+
+  getMacosPluginInstallStatus: async (): Promise<MacosPluginInstallStatus> => {
+    try {
+      const result = await invoke<MacosPluginInstallStatus>('get_macos_plugin_install_status')
+      return result
+    } catch (error) {
+      console.error('Failed to get macOS plugin install status:', error)
+      throw error
+    }
+  },
+
+  startMacosPluginInstall: async (pluginId: string): Promise<string> => {
+    try {
+      const result = await invoke<string>('start_macos_plugin_install', { pluginId })
+      return result
+    } catch (error) {
+      console.error('Failed to start macOS plugin install:', error)
       throw error
     }
   },

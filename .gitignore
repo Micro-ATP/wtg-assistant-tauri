@@ -18,6 +18,7 @@ dist/
 
 # Rust
 /src-tauri/target/
+/src-tauri/target-user/
 **/*.rs.bk
 Cargo.lock
 

@@ -1,6 +1,6 @@
 [package]
 name = "wtg-tauri"
-version = "0.0.3"
+version = "0.0.5"
 description = "Windows To Go Assistant - Cross-platform utility"
 authors = ["Micro-ATP"]
 license = "AGPL-3.0-only"

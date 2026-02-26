@@ -1,9 +1,10 @@
 use crate::models::FirmwareType;
-use crate::services::{boot, diskpart};
 use crate::utils::command::CommandExecutor;
 use crate::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+#[cfg(target_os = "windows")]
+use crate::services::{boot, diskpart};
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ADAPTER_DESC1, IDXGIFactory1,

@@ -17,6 +17,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:compile": "tauri build --bundles none",
+    "tauri:compile:mac:x64": "tauri build --target x86_64-apple-darwin --bundles none",
+    "tauri:compile:mac:arm64": "tauri build --target aarch64-apple-darwin --bundles none",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext ts,tsx"
   },

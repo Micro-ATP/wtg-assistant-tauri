@@ -1,9 +1,12 @@
 //! Write commands - Tauri command handlers for write operations
 
 use crate::models::{ImageInfo, WriteProgress, WtgConfig};
-use crate::services;
 use crate::utils::progress::PROGRESS_REPORTER;
+#[cfg(target_os = "windows")]
+use crate::services;
 use crate::utils::task_manager;
+#[cfg(not(target_os = "windows"))]
+use crate::AppError;
 use crate::Result;
 use tracing::info;
 
@@ -11,11 +14,24 @@ use tracing::info;
 #[tauri::command]
 pub async fn get_image_info(image_path: String) -> Result<Vec<ImageInfo>> {
     info!("Getting image info for: {}", image_path);
-    let info = tokio::task::spawn_blocking(move || services::image::get_image_info(&image_path))
-        .await
-        .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
 
-    Ok(info)
+    #[cfg(target_os = "windows")]
+    {
+        let info =
+            tokio::task::spawn_blocking(move || services::image::get_image_info(&image_path))
+                .await
+                .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
+
+        return Ok(info);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = image_path;
+        Err(AppError::Unsupported(
+            "Image parsing is currently implemented on Windows only".to_string(),
+        ))
+    }
 }
 
 /// Start a WTG write operation
@@ -26,29 +42,48 @@ pub async fn start_write(config: WtgConfig, app_handle: tauri::AppHandle) -> Res
         config.boot_mode
     );
 
-    // Set app handle for progress reporting
-    PROGRESS_REPORTER.set_app_handle(app_handle);
+    #[cfg(target_os = "windows")]
+    {
+        // Set app handle for progress reporting
+        PROGRESS_REPORTER.set_app_handle(app_handle);
 
-    // Determine app files path
-    let app_files_path = std::env::temp_dir()
-        .join("WTGA")
-        .to_string_lossy()
-        .to_string();
-    let _ = std::fs::create_dir_all(&app_files_path);
+        // Determine app files path
+        let app_files_path = std::env::temp_dir()
+            .join("WTGA")
+            .to_string_lossy()
+            .to_string();
+        let _ = std::fs::create_dir_all(&app_files_path);
 
-    let progress = tokio::task::spawn_blocking(move || {
-        services::write::execute_write(&config, &app_files_path)
-    })
-    .await
-    .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
+        let progress = tokio::task::spawn_blocking(move || {
+            services::write::execute_write(&config, &app_files_path)
+        })
+        .await
+        .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
 
-    Ok(progress)
+        return Ok(progress);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (config, app_handle);
+        Err(AppError::Unsupported(
+            "Write operation is currently implemented on Windows only".to_string(),
+        ))
+    }
 }
 
 /// Cancel a running write operation
 #[tauri::command]
 pub async fn cancel_write(task_id: String) -> Result<()> {
     info!("Cancelling write operation: {}", task_id);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = task_id;
+        return Err(AppError::Unsupported(
+            "Write cancellation is currently implemented on Windows only".to_string(),
+        ));
+    }
 
     // Set cancellation flag(s): cancel the target task, or all tasks when ID is empty.
     let cancelled = if task_id.trim().is_empty() {
@@ -83,5 +118,16 @@ pub async fn cancel_write(task_id: String) -> Result<()> {
 /// Verify system files on a target disk
 #[tauri::command]
 pub async fn verify_system_files(target_disk: String) -> Result<bool> {
-    Ok(services::image::verify_system_files(&target_disk))
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(services::image::verify_system_files(&target_disk));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = target_disk;
+        Err(AppError::Unsupported(
+            "System file verification is currently implemented on Windows only".to_string(),
+        ))
+    }
 }

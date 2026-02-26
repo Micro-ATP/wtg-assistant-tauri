@@ -35,11 +35,25 @@ pub fn ensure_logs_dir() -> io::Result<PathBuf> {
     }
 
     let base_dir = resolve_base_dir()?;
-    let logs_dir = base_dir.join("logs");
-    fs::create_dir_all(&logs_dir)?;
+    let preferred_dir = base_dir.join("logs");
+    if fs::create_dir_all(&preferred_dir).is_ok() {
+        let _ = LOG_DIR.set(preferred_dir.clone());
+        return Ok(preferred_dir);
+    }
 
-    let _ = LOG_DIR.set(logs_dir.clone());
-    Ok(logs_dir)
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let fallback_dir = PathBuf::from(local_app_data)
+            .join("WTG Assistant")
+            .join("logs");
+        fs::create_dir_all(&fallback_dir)?;
+        let _ = LOG_DIR.set(fallback_dir.clone());
+        return Ok(fallback_dir);
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "unable to create logs directory in install folder and LOCALAPPDATA",
+    ))
 }
 
 pub fn get_logs_dir() -> Option<PathBuf> {

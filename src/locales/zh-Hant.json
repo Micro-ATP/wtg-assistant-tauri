@@ -346,6 +346,8 @@
     "updateCheckFailed": "檢查更新失敗，點擊重試",
     "newVersionFound": "發現新版本：{{version}}",
     "innerBuild": "當前版本高於公開版本（內測構建）",
+    "openLogsDir": "開啟日誌目錄",
+    "logsDirUnknown": "未取得日誌目錄",
     "reportFeedback": "回報錯誤或提交意見",
     "viewRepo": "查看倉庫",
     "donate": "我很可愛，請給我錢"

@@ -29,14 +29,17 @@ fn resolve_volume_path(volume_letter: &str, disk_index: &str) -> String {
     // If volume letter was auto-assigned, try to find it via PowerShell
     if let Ok(output) = CommandExecutor::execute_allow_fail(
         "powershell.exe",
-        &["-NoProfile", "-Command",
-          &format!(
-              "Get-Partition -DiskNumber {} -ErrorAction SilentlyContinue | \
+        &[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Get-Partition -DiskNumber {} -ErrorAction SilentlyContinue | \
                Get-Volume -ErrorAction SilentlyContinue | \
                Where-Object {{ $_.DriveLetter }} | \
                Select-Object -First 1 -ExpandProperty DriveLetter",
-              disk_index
-          )],
+                disk_index
+            ),
+        ],
     ) {
         let found = output.trim().to_string();
         if !found.is_empty() && found.len() == 1 {
@@ -136,13 +139,18 @@ pub fn mount_efi_partition(disk_index: &str) -> Result<(String, bool)> {
     #[cfg(target_os = "windows")]
     {
         let (partition_number, current_letter) = query_efi_partition_and_letter(disk_index)?
-            .ok_or_else(|| AppError::DeviceNotFound(format!("EFI partition not found on disk {}", disk_index)))?;
+            .ok_or_else(|| {
+                AppError::DeviceNotFound(format!("EFI partition not found on disk {}", disk_index))
+            })?;
 
         let preferred = pick_preferred_mount_letter();
         if preferred.is_none() {
             if !current_letter.is_empty() {
                 let existing = format!("{}:", first_char(&current_letter));
-                info!("No free preferred mount letter, reusing EFI letter {}", existing);
+                info!(
+                    "No free preferred mount letter, reusing EFI letter {}",
+                    existing
+                );
                 return Ok((existing, false));
             }
             return Err(AppError::DiskError(
@@ -220,7 +228,10 @@ pub fn diskpart_gpt_uefi(
 
     // Create intermediate partitions (all except last)
     for i in 0..valid_sizes.len().saturating_sub(1) {
-        script.push_str(&format!("create partition primary size {}\n", valid_sizes[i]));
+        script.push_str(&format!(
+            "create partition primary size {}\n",
+            valid_sizes[i]
+        ));
     }
 
     // Create last partition (uses remaining space)
@@ -283,7 +294,10 @@ pub fn diskpart_mbr_uefi(
     let valid_sizes: Vec<u32> = partition_sizes.iter().copied().filter(|&s| s > 0).collect();
 
     for i in 0..valid_sizes.len().saturating_sub(1) {
-        script.push_str(&format!("create partition primary size {}\n", valid_sizes[i]));
+        script.push_str(&format!(
+            "create partition primary size {}\n",
+            valid_sizes[i]
+        ));
     }
 
     script.push_str("create partition primary\n");
@@ -317,10 +331,7 @@ pub fn diskpart_mbr_uefi(
 
 /// Re-partition USB disk with MBR layout
 /// Equivalent to DiskOperation.DiskPartRePartitionUD()
-pub fn diskpart_repartition(
-    volume_letter: &str,
-    partition_sizes: &[u32],
-) -> Result<()> {
+pub fn diskpart_repartition(volume_letter: &str, partition_sizes: &[u32]) -> Result<()> {
     let mut script = String::new();
 
     script.push_str(&format!("select volume {}\n", first_char(volume_letter)));
@@ -330,7 +341,10 @@ pub fn diskpart_repartition(
     let valid_sizes: Vec<u32> = partition_sizes.iter().copied().filter(|&s| s > 0).collect();
 
     for i in 0..valid_sizes.len().saturating_sub(1) {
-        script.push_str(&format!("create partition primary size {}\n", valid_sizes[i]));
+        script.push_str(&format!(
+            "create partition primary size {}\n",
+            valid_sizes[i]
+        ));
     }
 
     script.push_str("create partition primary\n");
@@ -411,5 +425,7 @@ pub fn format_ntfs(drive_letter: &str) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 pub fn format_ntfs(_drive_letter: &str) -> Result<()> {
-    Err(AppError::SystemError("Format is only available on Windows".to_string()))
+    Err(AppError::SystemError(
+        "Format is only available on Windows".to_string(),
+    ))
 }

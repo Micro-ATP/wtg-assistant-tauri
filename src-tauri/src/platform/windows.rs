@@ -660,7 +660,10 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
         match smart::DiskHandle::open(diag.disk_number) {
             Ok(handle) => match handle.read_smart_data() {
                 Ok(smart_data) => {
-                    info!("Successfully read ATA SMART data for disk {}", diag.disk_number);
+                    info!(
+                        "Successfully read ATA SMART data for disk {}",
+                        diag.disk_number
+                    );
 
                     if diag.temperature_c.is_none() {
                         diag.temperature_c = smart_data.temperature.map(|t| t as f64);
@@ -753,11 +756,7 @@ fn enrich_with_native_smart(diagnostics: &mut [DiskDiagnostics]) {
 fn is_nvme_diag(diag: &DiskDiagnostics) -> bool {
     let haystack = format!(
         "{} {} {} {} {}",
-        diag.transport_type,
-        diag.interface_type,
-        diag.bus_type,
-        diag.model,
-        diag.pnp_device_id
+        diag.transport_type, diag.interface_type, diag.bus_type, diag.model, diag.pnp_device_id
     )
     .to_ascii_uppercase();
 
@@ -1100,7 +1099,11 @@ fn smartctl_scan_entries() -> Option<Vec<SmartctlScanEntry>> {
             let key = format!(
                 "{}\u{1F}{}",
                 entry.name.to_ascii_lowercase(),
-                entry.device_type.clone().unwrap_or_default().to_ascii_lowercase()
+                entry
+                    .device_type
+                    .clone()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase()
             );
             if seen.insert(key) {
                 entries.push(entry);
@@ -1155,9 +1158,10 @@ fn parse_smartctl_scan_entries_json(payload: &Value) -> Vec<SmartctlScanEntry> {
 
 fn parse_smartctl_scan_entries_text(output: &str) -> Vec<SmartctlScanEntry> {
     let mut entries = Vec::new();
-    let scan_regex =
-        Regex::new(r#"(?i)^\s*(?P<name>\S+)(?:\s+-d\s+(?P<dtype>[^\s#]+))?(?:\s+#\s*(?P<info>.*))?$"#)
-            .ok();
+    let scan_regex = Regex::new(
+        r#"(?i)^\s*(?P<name>\S+)(?:\s+-d\s+(?P<dtype>[^\s#]+))?(?:\s+#\s*(?P<info>.*))?$"#,
+    )
+    .ok();
 
     for raw_line in output.lines() {
         let line = raw_line.trim();
@@ -1361,7 +1365,10 @@ fn get_smartctl_payload_for_disk(
     }
 
     if let Some(entries) = scan_entries {
-        for entry in entries.iter().filter(|e| smartctl_entry_matches_disk(e, diag.disk_number)) {
+        for entry in entries
+            .iter()
+            .filter(|e| smartctl_entry_matches_disk(e, diag.disk_number))
+        {
             push_smartctl_attempt(
                 &mut attempts,
                 &mut seen,
@@ -1383,7 +1390,11 @@ fn get_smartctl_payload_for_disk(
         // Fallback: probe scanned entries and match by serial/model/size
         for entry in entries {
             let mut fallback = vec!["-x".to_string(), "-j".to_string()];
-            if let Some(dt) = entry.device_type.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            if let Some(dt) = entry
+                .device_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
             {
                 fallback.push("-d".to_string());
                 fallback.push(dt.to_string());
@@ -1424,9 +1435,7 @@ fn smartctl_candidates() -> Vec<String> {
             // Prefer bundled smartmontools shipped with the app.
             push_candidate_path(
                 &mut candidates,
-                dir.join("smartmontools")
-                    .join("bin")
-                    .join("smartctl.exe"),
+                dir.join("smartmontools").join("bin").join("smartctl.exe"),
             );
             push_candidate_path(
                 &mut candidates,
@@ -1451,7 +1460,10 @@ fn smartctl_candidates() -> Vec<String> {
             );
             push_candidate_path(
                 &mut candidates,
-                dir.join("..").join("resources").join("smartctl").join("smartctl.exe"),
+                dir.join("..")
+                    .join("resources")
+                    .join("smartctl")
+                    .join("smartctl.exe"),
             );
             push_candidate_path(&mut candidates, dir.join("smartctl.exe"));
         }

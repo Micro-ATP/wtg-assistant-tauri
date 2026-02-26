@@ -1,6 +1,6 @@
-use crate::Result;
 use crate::services::benchmark;
 pub use crate::services::benchmark::BenchmarkResult;
+use crate::Result;
 
 /// Run disk benchmark on target path (e.g., "E:\\")
 #[tauri::command]

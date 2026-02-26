@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::Result;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PartitionInfo {
@@ -32,11 +32,7 @@ fn parse_bool(value: &serde_json::Value) -> bool {
 }
 
 fn normalize_drive_letter(value: &serde_json::Value) -> String {
-    let raw = value
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .trim_end_matches(':');
+    let raw = value.as_str().unwrap_or("").trim().trim_end_matches(':');
     let mut chars = raw.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() => c.to_ascii_uppercase().to_string(),
@@ -87,9 +83,7 @@ fn normalize_protocol(value: &serde_json::Value) -> String {
     }
 }
 
-fn parse_partition_info(
-    v: &serde_json::Value,
-) -> Option<PartitionInfo> {
+fn parse_partition_info(v: &serde_json::Value) -> Option<PartitionInfo> {
     let drive_letter = normalize_drive_letter(&v["DriveLetter"]);
     if drive_letter.is_empty() {
         return None;
@@ -250,10 +244,8 @@ if ([string]::IsNullOrWhiteSpace($__json)) { $__json = '[]' }
 Write-Output "__WTGA_JSON__$__json"
 "#;
 
-        let output = CommandExecutor::execute_allow_fail(
-            "powershell.exe",
-            &["-NoProfile", "-Command", ps],
-        )?;
+        let output =
+            CommandExecutor::execute_allow_fail("powershell.exe", &["-NoProfile", "-Command", ps])?;
 
         let trimmed = output.trim();
         if trimmed.is_empty() {

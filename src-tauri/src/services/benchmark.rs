@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
 #[cfg(target_os = "windows")]
-use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-#[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
+#[cfg(target_os = "windows")]
+use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
 #[cfg(target_os = "windows")]
 const FILE_FLAG_NO_BUFFERING: u32 = 0x20000000;
@@ -517,12 +517,20 @@ fn scenario_candidates() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
         paths.push(cwd.join("Scenarios").join("normal_web.csv"));
-        paths.push(cwd.join("WTGBench").join("Scenarios").join("normal_web.csv"));
+        paths.push(
+            cwd.join("WTGBench")
+                .join("Scenarios")
+                .join("normal_web.csv"),
+        );
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             paths.push(dir.join("Scenarios").join("normal_web.csv"));
-            paths.push(dir.join("resources").join("Scenarios").join("normal_web.csv"));
+            paths.push(
+                dir.join("resources")
+                    .join("Scenarios")
+                    .join("normal_web.csv"),
+            );
             paths.push(
                 dir.join("..")
                     .join("resources")
@@ -577,55 +585,73 @@ fn built_in_normal_web_scenario() -> Vec<ScenarioLine> {
     // Fallback profile approximating mixed desktop/web workloads (15 minutes total).
     let base = vec![
         ScenarioLine {
-            io_sizes: [4096, 4096, 4096, 8192, 8192, 16384, 4096, 4096, 32768, 65536],
+            io_sizes: [
+                4096, 4096, 4096, 8192, 8192, 16384, 4096, 4096, 32768, 65536,
+            ],
             write_proportion: 0.55,
             seqness: 0.10,
             threads: 4,
         },
         ScenarioLine {
-            io_sizes: [4096, 4096, 8192, 8192, 16384, 16384, 32768, 65536, 131072, 262144],
+            io_sizes: [
+                4096, 4096, 8192, 8192, 16384, 16384, 32768, 65536, 131072, 262144,
+            ],
             write_proportion: 0.40,
             seqness: 0.18,
             threads: 6,
         },
         ScenarioLine {
-            io_sizes: [4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 262144, 131072],
+            io_sizes: [
+                4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 262144, 131072,
+            ],
             write_proportion: 0.35,
             seqness: 0.30,
             threads: 8,
         },
         ScenarioLine {
-            io_sizes: [4096, 4096, 4096, 4096, 8192, 8192, 16384, 16384, 32768, 32768],
+            io_sizes: [
+                4096, 4096, 4096, 4096, 8192, 8192, 16384, 16384, 32768, 32768,
+            ],
             write_proportion: 0.65,
             seqness: 0.05,
             threads: 3,
         },
         ScenarioLine {
-            io_sizes: [65536, 131072, 262144, 524288, 1048576, 262144, 131072, 65536, 32768, 16384],
+            io_sizes: [
+                65536, 131072, 262144, 524288, 1048576, 262144, 131072, 65536, 32768, 16384,
+            ],
             write_proportion: 0.28,
             seqness: 0.55,
             threads: 5,
         },
         ScenarioLine {
-            io_sizes: [4096, 8192, 12288, 16384, 24576, 32768, 65536, 131072, 8192, 4096],
+            io_sizes: [
+                4096, 8192, 12288, 16384, 24576, 32768, 65536, 131072, 8192, 4096,
+            ],
             write_proportion: 0.50,
             seqness: 0.22,
             threads: 7,
         },
         ScenarioLine {
-            io_sizes: [4096, 4096, 8192, 8192, 12288, 16384, 24576, 32768, 65536, 131072],
+            io_sizes: [
+                4096, 4096, 8192, 8192, 12288, 16384, 24576, 32768, 65536, 131072,
+            ],
             write_proportion: 0.58,
             seqness: 0.12,
             threads: 10,
         },
         ScenarioLine {
-            io_sizes: [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 1048576, 524288],
+            io_sizes: [
+                16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 1048576, 524288,
+            ],
             write_proportion: 0.20,
             seqness: 0.72,
             threads: 4,
         },
         ScenarioLine {
-            io_sizes: [4096, 4096, 4096, 8192, 8192, 16384, 32768, 65536, 131072, 262144],
+            io_sizes: [
+                4096, 4096, 4096, 8192, 8192, 16384, 32768, 65536, 131072, 262144,
+            ],
             write_proportion: 0.48,
             seqness: 0.20,
             threads: 12,
@@ -657,7 +683,12 @@ fn scenario_line_worker(path: String, line: ScenarioLine) -> Result<u64> {
     ensure_file_region(&mut file, RANDOM_REGION_BYTES)?;
 
     let mut rng = rand::thread_rng();
-    let max_io = *line.io_sizes.iter().max().unwrap_or(&BLOCK_SIZE).max(&BLOCK_SIZE);
+    let max_io = *line
+        .io_sizes
+        .iter()
+        .max()
+        .unwrap_or(&BLOCK_SIZE)
+        .max(&BLOCK_SIZE);
     let mut write_buf = vec![0u8; max_io];
     fill_random(&mut write_buf);
     let mut read_buf = vec![0u8; max_io];
@@ -708,7 +739,9 @@ fn scenario_line_worker(path: String, line: ScenarioLine) -> Result<u64> {
 
 fn scenario_benchmark(path_prefix: &str) -> Result<(u64, Vec<TrendPoint>)> {
     let lines = load_scenario_lines();
-    let worker_paths: Vec<String> = (0..32).map(|i| format!("{}.sce{}", path_prefix, i)).collect();
+    let worker_paths: Vec<String> = (0..32)
+        .map(|i| format!("{}.sce{}", path_prefix, i))
+        .collect();
     for p in &worker_paths {
         let _ = std::fs::remove_file(p);
         let mut f = open_benchmark_file(p)?;
@@ -817,7 +850,8 @@ pub async fn run_benchmark(config: &BenchmarkConfig) -> Result<BenchmarkResult> 
                     let aligned = (target / FULL_IO_BYTES) * FULL_IO_BYTES;
                     if aligned < FULL_IO_BYTES {
                         return Err(crate::AppError::InvalidParameter(
-                            "Not enough free space for full benchmark (needs at least ~64MB)".into(),
+                            "Not enough free space for full benchmark (needs at least ~64MB)"
+                                .into(),
                         ));
                     }
                     let seq = sequential_full(&temp_file, aligned)?;

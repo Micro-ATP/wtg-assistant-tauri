@@ -2,8 +2,8 @@
 //! Provides cancellation support and progress tracking
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// Manages active write tasks
 pub struct TaskManager {

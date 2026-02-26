@@ -19,6 +19,8 @@ tauri-plugin-fs = "2"
 tokio = { version = "1.35", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+tracing-appender = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 thiserror = "1.0"
 anyhow = "1.0"
 regex = "1.10"

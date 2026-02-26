@@ -48,10 +48,8 @@ fn resolve_disk_number_from_drive(drive_root: &str) -> Result<String> {
         letter = drive_letter
     );
 
-    let output = CommandExecutor::execute_allow_fail(
-        "powershell.exe",
-        &["-NoProfile", "-Command", &ps],
-    )?;
+    let output =
+        CommandExecutor::execute_allow_fail("powershell.exe", &["-NoProfile", "-Command", &ps])?;
 
     let disk_no = output.trim().to_string();
     if disk_no.is_empty() {
@@ -99,23 +97,47 @@ pub async fn repair_boot(target_disk: String, firmware: String) -> Result<String
                         .as_ref()
                         .ok_or_else(|| AppError::DiskError("EFI mount failed".to_string()))?;
                     boot::bcdboot_write_boot_file(&target_root_for_task, esp, &FirmwareType::UEFI)?;
-                    boot::bcdedit_fix_boot_file_typical(esp, &target_root_for_task, &FirmwareType::UEFI)?;
+                    boot::bcdedit_fix_boot_file_typical(
+                        esp,
+                        &target_root_for_task,
+                        &FirmwareType::UEFI,
+                    )?;
                     Ok(())
                 }
                 FirmwareType::BIOS => {
-                    boot::bcdboot_write_boot_file(&target_root_for_task, &target_root_for_task, &FirmwareType::BIOS)?;
-                    boot::bcdedit_fix_boot_file_typical(&target_root_for_task, &target_root_for_task, &FirmwareType::BIOS)?;
+                    boot::bcdboot_write_boot_file(
+                        &target_root_for_task,
+                        &target_root_for_task,
+                        &FirmwareType::BIOS,
+                    )?;
+                    boot::bcdedit_fix_boot_file_typical(
+                        &target_root_for_task,
+                        &target_root_for_task,
+                        &FirmwareType::BIOS,
+                    )?;
                     Ok(())
                 }
                 FirmwareType::ALL => {
-                    boot::bcdboot_write_boot_file(&target_root_for_task, &target_root_for_task, &FirmwareType::BIOS)?;
-                    boot::bcdedit_fix_boot_file_typical(&target_root_for_task, &target_root_for_task, &FirmwareType::BIOS)?;
+                    boot::bcdboot_write_boot_file(
+                        &target_root_for_task,
+                        &target_root_for_task,
+                        &FirmwareType::BIOS,
+                    )?;
+                    boot::bcdedit_fix_boot_file_typical(
+                        &target_root_for_task,
+                        &target_root_for_task,
+                        &FirmwareType::BIOS,
+                    )?;
 
                     let esp = mounted_efi
                         .as_ref()
                         .ok_or_else(|| AppError::DiskError("EFI mount failed".to_string()))?;
                     boot::bcdboot_write_boot_file(&target_root_for_task, esp, &FirmwareType::UEFI)?;
-                    boot::bcdedit_fix_boot_file_typical(esp, &target_root_for_task, &FirmwareType::UEFI)?;
+                    boot::bcdedit_fix_boot_file_typical(
+                        esp,
+                        &target_root_for_task,
+                        &FirmwareType::UEFI,
+                    )?;
                     Ok(())
                 }
             };
@@ -134,8 +156,7 @@ pub async fn repair_boot(target_disk: String, firmware: String) -> Result<String
         result?;
         Ok(format!(
             "Boot repair completed for {} ({})",
-            target_root,
-            firmware_for_msg
+            target_root, firmware_for_msg
         ))
     }
 

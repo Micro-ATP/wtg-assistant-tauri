@@ -342,6 +342,8 @@
     "updateCheckFailed": "Failed to check updates, click to retry",
     "newVersionFound": "New version found: {{version}}",
     "innerBuild": "Current build is ahead of public release",
+    "openLogsDir": "Open logs folder",
+    "logsDirUnknown": "Logs folder path unavailable",
     "reportFeedback": "Report bugs or send feedback",
     "viewRepo": "View repository",
     "donate": "I am cute, support me"

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
 use crate::Result;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UsbDevice {
@@ -28,9 +28,7 @@ pub struct UsbEvent {
 
 /// Start monitoring USB devices and send events
 #[tauri::command]
-pub async fn start_usb_monitoring(
-    app_handle: tauri::AppHandle,
-) -> Result<String> {
+pub async fn start_usb_monitoring(app_handle: tauri::AppHandle) -> Result<String> {
     #[cfg(target_os = "windows")]
     {
         crate::platform::windows::start_usb_monitoring(app_handle).await

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { open } from '@tauri-apps/plugin-shell'
 import { useTheme } from '../hooks/useTheme'
 import { useAppStore } from '../services/store'
-import { SunIcon, GlobeIcon, CogIcon, CheckIcon, LinkOutIcon, HeartIcon, ChevronDownIcon, SpinnerIcon, RefreshIcon } from '../components/Icons'
+import { systemApi } from '../services/api'
+import { SunIcon, GlobeIcon, CogIcon, CheckIcon, LinkOutIcon, HeartIcon, ChevronDownIcon, SpinnerIcon, RefreshIcon, FolderIcon } from '../components/Icons'
 import './Settings.css'
 
 type ThemeValue = 'light' | 'dark' | 'system'
@@ -66,6 +67,7 @@ function SettingsPage() {
   const [latestTag, setLatestTag] = useState<string | null>(null)
   const [updateState, setUpdateState] = useState<'latest' | 'update' | 'beta' | 'error'>('latest')
   const [updateMessage, setUpdateMessage] = useState<string>(t('settingsPage.checkingUpdate') || 'Checking for updates...')
+  const [logsDir, setLogsDir] = useState<string>('')
 
   const currentVersion = useMemo(() => t('common.version') || 'V0.0.3-Alpha', [t])
 
@@ -173,6 +175,26 @@ function SettingsPage() {
     void checkForUpdate()
   }, [checkForUpdate])
 
+  useEffect(() => {
+    let isMounted = true
+    void (async () => {
+      try {
+        const dir = await systemApi.getLogsDirectory()
+        if (isMounted) {
+          setLogsDir(dir)
+        }
+      } catch {
+        if (isMounted) {
+          setLogsDir('')
+        }
+      }
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const handleUpdateAction = async () => {
     if (isCheckingUpdate) return
     if (updateState === 'update' && latestTag) {
@@ -180,6 +202,19 @@ function SettingsPage() {
       return
     }
     await checkForUpdate()
+  }
+
+  const handleOpenLogsDirectory = async () => {
+    try {
+      const openedPath = await systemApi.openLogsDirectory()
+      if (openedPath) {
+        setLogsDir(openedPath)
+      }
+    } catch {
+      if (logsDir) {
+        await openExternal(logsDir)
+      }
+    }
   }
 
   return (
@@ -257,6 +292,16 @@ function SettingsPage() {
               ) : (
                 <CheckIcon />
               )}
+            </button>
+
+            <button className="about-row link" onClick={() => void handleOpenLogsDirectory()}>
+              <span className="about-row-main">
+                <span>{t('settingsPage.openLogsDir') || '打开日志目录'}</span>
+                <span className="about-row-sub">
+                  {logsDir || t('settingsPage.logsDirUnknown') || '未获取到日志目录'}
+                </span>
+              </span>
+              <FolderIcon size={18} />
             </button>
 
             <button className="about-row link" onClick={() => void openExternal(REPORT_URL)}>

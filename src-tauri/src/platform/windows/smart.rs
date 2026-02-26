@@ -237,7 +237,11 @@ impl DiskHandle {
     fn read_smart_sat(&self) -> Result<SmartData, String> {
         let attr_data = self.send_sat_smart_command(READ_ATTRIBUTES)?;
         let threshold_data = self.send_sat_smart_command(READ_THRESHOLDS).ok();
-        parse_ata_smart_tables(&attr_data, threshold_data.as_deref(), SmartReadMethod::SatBridge)
+        parse_ata_smart_tables(
+            &attr_data,
+            threshold_data.as_deref(),
+            SmartReadMethod::SatBridge,
+        )
     }
 
     fn send_smart_command(&self, sub_command: u8) -> Result<Vec<u8>, String> {
@@ -447,15 +451,9 @@ impl SmartData {
                 }
             });
 
-        let power_on_hours = attributes
-            .iter()
-            .find(|a| a.id == 9)
-            .map(|a| a.raw);
+        let power_on_hours = attributes.iter().find(|a| a.id == 9).map(|a| a.raw);
 
-        let power_cycle_count = attributes
-            .iter()
-            .find(|a| a.id == 12)
-            .map(|a| a.raw);
+        let power_cycle_count = attributes.iter().find(|a| a.id == 12).map(|a| a.raw);
 
         SmartData {
             read_method,
@@ -488,7 +486,6 @@ fn parse_ata_smart_tables(
         let id = attr_data[i];
         if id == 0 {
             continue;
-            
         }
 
         let current = attr_data[i + 3];

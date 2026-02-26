@@ -14,6 +14,21 @@ mod utils;
 pub use error::{AppError, Result};
 
 fn main() {
+    match utils::log::init_logger() {
+        Ok(logs_dir) => {
+            tracing::info!(
+                "WTGA startup: version={} os={} arch={} logs_dir={}",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                logs_dir.display()
+            );
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize file logger: {e}");
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -25,6 +40,8 @@ fn main() {
             commands::usb::start_usb_monitoring,
             commands::usb::stop_usb_monitoring,
             commands::system::get_system_info,
+            commands::system::get_logs_directory,
+            commands::system::open_logs_directory,
             commands::write::get_image_info,
             commands::write::start_write,
             commands::write::cancel_write,

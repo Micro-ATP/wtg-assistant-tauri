@@ -58,7 +58,10 @@ pub fn bcdboot_write_boot_file(
     // Check if target partition is accessible before running bcdboot
     info!("Checking if target partition {} is accessible...", target);
     if !std::path::Path::new(target).exists() {
-        warn!("Target partition {} does not exist or is not accessible!", target);
+        warn!(
+            "Target partition {} does not exist or is not accessible!",
+            target
+        );
         return Err(AppError::CommandFailed(format!(
             "Target partition {} is not accessible. Check if it's properly mounted and has read/write permissions.",
             target
@@ -150,7 +153,10 @@ fn validate_boot_files_created(target_disk: &str, fw_type: &FirmwareType) -> Res
         info!("Boot files validation SUCCESS: BCD found at {}", bcd_path);
         Ok(())
     } else {
-        warn!("Boot files validation FAILED: BCD not found at {}", bcd_path);
+        warn!(
+            "Boot files validation FAILED: BCD not found at {}",
+            bcd_path
+        );
         warn!("Expected bootmgr at: {}", bootmgr_path);
 
         // Try to check if the EFI directory itself exists
@@ -195,14 +201,20 @@ pub fn bcdedit_fix_boot_file_typical(
     let bcd_disk_short = first_two_chars(bcd_disk);
     let osdevice_short = first_two_chars(osdevice);
 
-    info!("Fixing BCD: store={}, bootmgr={}, osdevice={}", bcd_full_path, bcd_disk_short, osdevice_short);
+    info!(
+        "Fixing BCD: store={}, bootmgr={}, osdevice={}",
+        bcd_full_path, bcd_disk_short, osdevice_short
+    );
 
     // Set bootmgr device
     let _ = CommandExecutor::execute_allow_fail(
         "bcdedit.exe",
         &[
-            "/store", &bcd_full_path,
-            "/set", "{bootmgr}", "device",
+            "/store",
+            &bcd_full_path,
+            "/set",
+            "{bootmgr}",
+            "device",
             &format!("partition={}", bcd_disk_short),
         ],
     );
@@ -211,8 +223,11 @@ pub fn bcdedit_fix_boot_file_typical(
     let _ = CommandExecutor::execute_allow_fail(
         "bcdedit.exe",
         &[
-            "/store", &bcd_full_path,
-            "/set", "{default}", "device",
+            "/store",
+            &bcd_full_path,
+            "/set",
+            "{default}",
+            "device",
             &format!("partition={}", osdevice_short),
         ],
     );
@@ -221,8 +236,11 @@ pub fn bcdedit_fix_boot_file_typical(
     let _ = CommandExecutor::execute_allow_fail(
         "bcdedit.exe",
         &[
-            "/store", &bcd_full_path,
-            "/set", "{default}", "osdevice",
+            "/store",
+            &bcd_full_path,
+            "/set",
+            "{default}",
+            "osdevice",
             &format!("partition={}", osdevice_short),
         ],
     );
@@ -256,14 +274,20 @@ pub fn bcdedit_fix_boot_file_vhd(
     let bcd_disk_short = first_two_chars(bcd_disk);
     let osdevice_short = first_two_chars(osdevice);
 
-    info!("Fixing BCD for VHD: store={}, vhd={}", bcd_full_path, vhd_filename);
+    info!(
+        "Fixing BCD for VHD: store={}, vhd={}",
+        bcd_full_path, vhd_filename
+    );
 
     // Set bootmgr device
     let _ = CommandExecutor::execute_allow_fail(
         "bcdedit.exe",
         &[
-            "/store", &bcd_full_path,
-            "/set", "{bootmgr}", "device",
+            "/store",
+            &bcd_full_path,
+            "/set",
+            "{bootmgr}",
+            "device",
             &format!("partition={}", bcd_disk_short),
         ],
     );
@@ -272,8 +296,11 @@ pub fn bcdedit_fix_boot_file_vhd(
     let _ = CommandExecutor::execute_allow_fail(
         "bcdedit.exe",
         &[
-            "/store", &bcd_full_path,
-            "/set", "{default}", "device",
+            "/store",
+            &bcd_full_path,
+            "/set",
+            "{default}",
+            "device",
             &format!("vhd=[{}]\\{}", osdevice_short, vhd_filename),
         ],
     );
@@ -282,8 +309,11 @@ pub fn bcdedit_fix_boot_file_vhd(
     let _ = CommandExecutor::execute_allow_fail(
         "bcdedit.exe",
         &[
-            "/store", &bcd_full_path,
-            "/set", "{default}", "osdevice",
+            "/store",
+            &bcd_full_path,
+            "/set",
+            "{default}",
+            "osdevice",
             &format!("vhd=[{}]\\{}", osdevice_short, vhd_filename),
         ],
     );

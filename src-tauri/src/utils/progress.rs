@@ -1,8 +1,8 @@
 //! Progress reporting system for write operations
 //! Uses Tauri events to send real-time progress updates to the frontend
 
-use std::sync::{Arc, Mutex};
 use crate::models::{WriteProgress, WriteStatus};
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 /// Progress reporter that sends events during write operations

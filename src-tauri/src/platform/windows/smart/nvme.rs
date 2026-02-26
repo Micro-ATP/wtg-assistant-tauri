@@ -258,10 +258,16 @@ impl NVMeHandle {
             media_errors: parse_u128_le_at(buffer, 160),
             num_err_log_entries: parse_u128_le_at(buffer, 176),
             warning_temp_time: u32::from_le_bytes([
-                buffer[192], buffer[193], buffer[194], buffer[195],
+                buffer[192],
+                buffer[193],
+                buffer[194],
+                buffer[195],
             ]),
             critical_temp_time: u32::from_le_bytes([
-                buffer[196], buffer[197], buffer[198], buffer[199],
+                buffer[196],
+                buffer[197],
+                buffer[198],
+                buffer[199],
             ]),
             temp_sensors,
         })

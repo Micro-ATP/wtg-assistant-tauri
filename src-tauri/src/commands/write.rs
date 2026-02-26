@@ -1,9 +1,9 @@
 //! Write commands - Tauri command handlers for write operations
 
-use crate::models::{WtgConfig, WriteProgress, ImageInfo};
+use crate::models::{ImageInfo, WriteProgress, WtgConfig};
 use crate::services;
-use crate::utils::task_manager;
 use crate::utils::progress::PROGRESS_REPORTER;
+use crate::utils::task_manager;
 use crate::Result;
 use tracing::info;
 
@@ -11,11 +11,9 @@ use tracing::info;
 #[tauri::command]
 pub async fn get_image_info(image_path: String) -> Result<Vec<ImageInfo>> {
     info!("Getting image info for: {}", image_path);
-    let info = tokio::task::spawn_blocking(move || {
-        services::image::get_image_info(&image_path)
-    })
-    .await
-    .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
+    let info = tokio::task::spawn_blocking(move || services::image::get_image_info(&image_path))
+        .await
+        .map_err(|e| crate::AppError::SystemError(e.to_string()))??;
 
     Ok(info)
 }
@@ -23,13 +21,19 @@ pub async fn get_image_info(image_path: String) -> Result<Vec<ImageInfo>> {
 /// Start a WTG write operation
 #[tauri::command]
 pub async fn start_write(config: WtgConfig, app_handle: tauri::AppHandle) -> Result<WriteProgress> {
-    info!("Starting write operation with config: {:?}", config.boot_mode);
+    info!(
+        "Starting write operation with config: {:?}",
+        config.boot_mode
+    );
 
     // Set app handle for progress reporting
     PROGRESS_REPORTER.set_app_handle(app_handle);
 
     // Determine app files path
-    let app_files_path = std::env::temp_dir().join("WTGA").to_string_lossy().to_string();
+    let app_files_path = std::env::temp_dir()
+        .join("WTGA")
+        .to_string_lossy()
+        .to_string();
     let _ = std::fs::create_dir_all(&app_files_path);
 
     let progress = tokio::task::spawn_blocking(move || {

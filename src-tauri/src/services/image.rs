@@ -3,10 +3,10 @@
 
 #![allow(dead_code)]
 
-use crate::utils::command::CommandExecutor;
-use crate::utils::output_capture::OutputCapture;
-use crate::utils::first_two_chars;
 use crate::models::ImageInfo;
+use crate::utils::command::CommandExecutor;
+use crate::utils::first_two_chars;
+use crate::utils::output_capture::OutputCapture;
 use crate::{AppError, Result};
 use regex::Regex;
 use tracing::info;
@@ -36,7 +36,11 @@ fn get_image_info_from_wim(wim_path: &str) -> Result<Vec<ImageInfo>> {
     // and we need to parse stdout regardless
     let output = CommandExecutor::execute_allow_fail(
         "Dism.exe",
-        &["/Get-WimInfo", &format!("/WimFile:{}", wim_path), "/english"],
+        &[
+            "/Get-WimInfo",
+            &format!("/WimFile:{}", wim_path),
+            "/english",
+        ],
     )?;
 
     info!("DISM output length: {} chars", output.len());
@@ -61,8 +65,11 @@ fn get_image_info_from_iso(iso_path: &str) -> Result<Vec<ImageInfo>> {
     // Mount ISO using PowerShell
     let _ = CommandExecutor::execute_allow_fail(
         "powershell.exe",
-        &["-NoProfile", "-Command",
-          &format!("Mount-DiskImage -ImagePath '{}'", iso_path)],
+        &[
+            "-NoProfile",
+            "-Command",
+            &format!("Mount-DiskImage -ImagePath '{}'", iso_path),
+        ],
     );
 
     // Wait a moment for mount to complete
@@ -86,7 +93,9 @@ fn get_image_info_from_iso(iso_path: &str) -> Result<Vec<ImageInfo>> {
     let drive_letter = drive_output.trim().to_string();
     if drive_letter.is_empty() {
         dismount_iso(iso_path);
-        return Err(AppError::ImageError("Failed to get ISO drive letter".to_string()));
+        return Err(AppError::ImageError(
+            "Failed to get ISO drive letter".to_string(),
+        ));
     }
 
     info!("ISO mounted at drive: {}:", drive_letter);
@@ -128,8 +137,11 @@ pub fn dismount_iso(iso_path: &str) {
     info!("Dismounting ISO: {}", iso_path);
     let _ = CommandExecutor::execute_allow_fail(
         "powershell.exe",
-        &["-NoProfile", "-Command",
-          &format!("Dismount-DiskImage -ImagePath '{}'", iso_path)],
+        &[
+            "-NoProfile",
+            "-Command",
+            &format!("Dismount-DiskImage -ImagePath '{}'", iso_path),
+        ],
     );
 }
 
@@ -141,8 +153,11 @@ pub fn mount_iso_and_find_wim(iso_path: &str) -> Result<String> {
 
     let _ = CommandExecutor::execute_allow_fail(
         "powershell.exe",
-        &["-NoProfile", "-Command",
-          &format!("Mount-DiskImage -ImagePath '{}'", iso_path)],
+        &[
+            "-NoProfile",
+            "-Command",
+            &format!("Mount-DiskImage -ImagePath '{}'", iso_path),
+        ],
     );
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -163,7 +178,9 @@ pub fn mount_iso_and_find_wim(iso_path: &str) -> Result<String> {
     let drive_letter = drive_output.trim().to_string();
     if drive_letter.is_empty() {
         dismount_iso(iso_path);
-        return Err(AppError::ImageError("Failed to get ISO drive letter after mount".to_string()));
+        return Err(AppError::ImageError(
+            "Failed to get ISO drive letter after mount".to_string(),
+        ));
     }
 
     info!("ISO mounted at drive: {}:", drive_letter);
@@ -185,7 +202,9 @@ pub fn mount_iso_and_find_wim(iso_path: &str) -> Result<String> {
 
 #[cfg(not(target_os = "windows"))]
 pub fn mount_iso_and_find_wim(_iso_path: &str) -> Result<String> {
-    Err(AppError::ImageError("ISO mounting is only supported on Windows".to_string()))
+    Err(AppError::ImageError(
+        "ISO mounting is only supported on Windows".to_string(),
+    ))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -289,7 +308,11 @@ pub fn auto_choose_wim_index(image_file: &str, current_index: &str) -> Result<St
 fn auto_choose_esd_index(esd_path: &str) -> Result<String> {
     let output = CommandExecutor::execute_allow_fail(
         "dism.exe",
-        &["/get-wiminfo", &format!("/wimfile:{}", esd_path), "/english"],
+        &[
+            "/get-wiminfo",
+            &format!("/wimfile:{}", esd_path),
+            "/english",
+        ],
     )?;
 
     let re = Regex::new(r"Index").map_err(|e| AppError::SystemError(e.to_string()))?;
@@ -304,8 +327,16 @@ fn auto_choose_esd_index(esd_path: &str) -> Result<String> {
 
 /// Apply a Windows image using DISM
 /// Equivalent to ImageOperation.DismApplyImage()
-pub fn dism_apply_image(image_file: &str, target_disk: &str, wim_index: &str, compact_os: bool) -> Result<()> {
-    info!("Applying image {} to {} (index: {}, compact: {})", image_file, target_disk, wim_index, compact_os);
+pub fn dism_apply_image(
+    image_file: &str,
+    target_disk: &str,
+    wim_index: &str,
+    compact_os: bool,
+) -> Result<()> {
+    info!(
+        "Applying image {} to {} (index: {}, compact: {})",
+        image_file, target_disk, wim_index, compact_os
+    );
 
     let target = first_two_chars(target_disk); // e.g., "E:"
 
@@ -336,8 +367,10 @@ pub fn dism_apply_image_with_progress(
     compact_os: bool,
     task_id: &str,
 ) -> Result<()> {
-    info!("Applying image {} to {} with progress (index: {}, compact: {})",
-          image_file, target_disk, wim_index, compact_os);
+    info!(
+        "Applying image {} to {} with progress (index: {}, compact: {})",
+        image_file, target_disk, wim_index, compact_os
+    );
 
     let target = first_two_chars(target_disk); // e.g., "E:"
 
@@ -346,23 +379,22 @@ pub fn dism_apply_image_with_progress(
     let apply_dir_arg = format!("/ApplyDir:{}", target);
     let index_arg = format!("/Index:{}", wim_index);
 
-    let mut args: Vec<&str> = vec![
-        "/Apply-Image",
-        &image_file_arg,
-        &apply_dir_arg,
-        &index_arg,
-    ];
+    let mut args: Vec<&str> = vec!["/Apply-Image", &image_file_arg, &apply_dir_arg, &index_arg];
 
     if compact_os {
         args.push("/compact");
     }
 
     let capture = OutputCapture::new(task_id, "applyingimage");
-    let status = capture.execute_with_capture("Dism.exe", &args)
+    let status = capture
+        .execute_with_capture("Dism.exe", &args)
         .map_err(|e| AppError::ImageError(format!("DISM execution failed: {}", e)))?;
 
     if status != 0 {
-        return Err(AppError::ImageError(format!("DISM failed with exit code: {}", status)));
+        return Err(AppError::ImageError(format!(
+            "DISM failed with exit code: {}",
+            status
+        )));
     }
 
     info!("Image applied successfully");
@@ -371,20 +403,30 @@ pub fn dism_apply_image_with_progress(
 
 /// Apply a Windows image using ImageX
 /// Equivalent to ImageOperation.ImageXApply()
-pub fn imagex_apply(imagex_path: &str, image_file: &str, wim_index: &str, target_disk: &str) -> Result<()> {
-    info!("ImageX applying {} to {} (index: {})", image_file, target_disk, wim_index);
+pub fn imagex_apply(
+    imagex_path: &str,
+    image_file: &str,
+    wim_index: &str,
+    target_disk: &str,
+) -> Result<()> {
+    info!(
+        "ImageX applying {} to {} (index: {})",
+        image_file, target_disk, wim_index
+    );
 
-    CommandExecutor::execute(
-        imagex_path,
-        &["/apply", image_file, wim_index, target_disk],
-    )?;
+    CommandExecutor::execute(imagex_path, &["/apply", image_file, wim_index, target_disk])?;
 
     Ok(())
 }
 
 /// Apply WIMBoot image
 /// Equivalent to ImageOperation.WimbootApply()
-pub fn wimboot_apply(source_image: &str, dest_disk: &str, wim_index: &str, apply_dir: &str) -> Result<()> {
+pub fn wimboot_apply(
+    source_image: &str,
+    dest_disk: &str,
+    wim_index: &str,
+    apply_dir: &str,
+) -> Result<()> {
     info!("WIMBoot applying {} (index: {})", source_image, wim_index);
 
     let target = first_two_chars(apply_dir);
@@ -519,7 +561,10 @@ pub fn image_extra(
 
     // Disable WinRE and/or skip OOBE via unattend.xml
     if disable_winre || skip_oobe {
-        info!("Configuring unattend.xml (disable_winre: {}, skip_oobe: {})", disable_winre, skip_oobe);
+        info!(
+            "Configuring unattend.xml (disable_winre: {}, skip_oobe: {})",
+            disable_winre, skip_oobe
+        );
         let sysprep_dir = format!("{}\\Windows\\System32\\sysprep\\", image_letter);
         if std::path::Path::new(&sysprep_dir).exists() {
             let template_path = format!("{}\\unattend_templete.xml", app_files_path);
@@ -554,31 +599,30 @@ pub fn image_extra(
 /// Equivalent to ImageOperation.Fixletter()
 #[cfg(target_os = "windows")]
 pub fn fix_letter(target_letter: &str, current_os: &str) -> Result<()> {
-    info!("Fixing drive letter from {} to {}", current_os, target_letter);
+    info!(
+        "Fixing drive letter from {} to {}",
+        current_os, target_letter
+    );
 
     let log_dir = std::env::temp_dir().join("WTGA");
     let _ = std::fs::create_dir_all(&log_dir);
     let log_path = log_dir.to_string_lossy();
 
     // Load registry hive
-    let _ = CommandExecutor::run_cmd(
-        &format!(
-            "reg.exe load HKU\\TEMP {}\\Windows\\System32\\Config\\SYSTEM > \"{}\\loadreg.log\"",
-            current_os, log_path
-        ),
-    );
+    let _ = CommandExecutor::run_cmd(&format!(
+        "reg.exe load HKU\\TEMP {}\\Windows\\System32\\Config\\SYSTEM > \"{}\\loadreg.log\"",
+        current_os, log_path
+    ));
 
     // Note: The registry manipulation is Windows-specific and requires
     // reading binary registry values. In the full implementation, this would use
     // the winreg crate for proper registry access.
     // For now, we use the reg.exe command approach similar to the old code.
 
-    let _ = CommandExecutor::run_cmd(
-        &format!(
-            "reg.exe unload HKU\\TEMP > \"{}\\unloadreg.log\"",
-            log_path
-        ),
-    );
+    let _ = CommandExecutor::run_cmd(&format!(
+        "reg.exe unload HKU\\TEMP > \"{}\\unloadreg.log\"",
+        log_path
+    ));
 
     info!("Drive letter fix completed");
     Ok(())
@@ -599,26 +643,20 @@ pub fn win7_reg(install_drive: &str, app_files_path: &str) -> Result<()> {
     let _ = std::fs::create_dir_all(&log_dir);
     let log_path = log_dir.to_string_lossy();
 
-    let _ = CommandExecutor::run_cmd(
-        &format!(
-            "reg.exe load HKU\\sys {}Windows\\System32\\Config\\SYSTEM > \"{}\\Win7REGLoad.log\"",
-            install_drive, log_path
-        ),
-    );
+    let _ = CommandExecutor::run_cmd(&format!(
+        "reg.exe load HKU\\sys {}Windows\\System32\\Config\\SYSTEM > \"{}\\Win7REGLoad.log\"",
+        install_drive, log_path
+    ));
 
     let usb_reg = format!("{}\\usb.reg", app_files_path);
     if std::path::Path::new(&usb_reg).exists() {
-        let _ = CommandExecutor::run_cmd(
-            &format!("reg.exe import \"{}\"", usb_reg),
-        );
+        let _ = CommandExecutor::run_cmd(&format!("reg.exe import \"{}\"", usb_reg));
     }
 
-    let _ = CommandExecutor::run_cmd(
-        &format!(
-            "reg.exe unload HKU\\sys > \"{}\\Win7REGUnLoad.log\"",
-            log_path
-        ),
-    );
+    let _ = CommandExecutor::run_cmd(&format!(
+        "reg.exe unload HKU\\sys > \"{}\\Win7REGUnLoad.log\"",
+        log_path
+    ));
 
     fix_letter("C:", install_drive)?;
 

@@ -1,9 +1,9 @@
 //! Output capture and progress monitoring for command execution
 //! Mimics the old architecture's real-time output capture with progress reporting
 
+use crate::utils::progress::PROGRESS_REPORTER;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::process::{Command, Stdio};
-use crate::utils::progress::PROGRESS_REPORTER;
 use tracing::debug;
 
 pub struct OutputCapture {
@@ -20,11 +20,7 @@ impl OutputCapture {
     }
 
     /// Execute command and capture output in real-time, reporting progress
-    pub fn execute_with_capture(
-        &self,
-        cmd: &str,
-        args: &[&str],
-    ) -> std::io::Result<i32> {
+    pub fn execute_with_capture(&self, cmd: &str, args: &[&str]) -> std::io::Result<i32> {
         let mut child = Command::new(cmd)
             .args(args)
             .stdout(Stdio::piped())
@@ -104,7 +100,8 @@ impl OutputCapture {
         // Diskpart/other completion indicators
         if output_lower.contains("successfully")
             || output_lower.contains("complete")
-            || output_lower.contains("finished") {
+            || output_lower.contains("finished")
+        {
             return 85.0;
         }
 

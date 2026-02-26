@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use std::process::Command;
 use crate::AppError;
-use tracing::{info, warn, error};
+use std::process::Command;
+use tracing::{error, info, warn};
 
 /// Decode command output bytes to String.
 /// On Chinese/Japanese/Korean Windows, system commands (DISM, diskpart, etc.)
@@ -58,9 +58,15 @@ impl CommandExecutor {
 
         if !output.status.success() {
             warn!("Command failed: {} - stderr: {}", cmd, stderr);
-            return Err(AppError::CommandFailed(
-                format!("{}: {}", cmd, if stderr.trim().is_empty() { &stdout } else { &stderr })
-            ));
+            return Err(AppError::CommandFailed(format!(
+                "{}: {}",
+                cmd,
+                if stderr.trim().is_empty() {
+                    &stdout
+                } else {
+                    &stderr
+                }
+            )));
         }
 
         info!("Command succeeded: {}", cmd);
@@ -141,9 +147,7 @@ impl CommandExecutor {
     #[cfg(not(target_os = "windows"))]
     pub fn kill_process(name: &str) -> crate::Result<()> {
         info!("Killing process: {}", name);
-        let _ = Command::new("pkill")
-            .args(&["-f", name])
-            .output();
+        let _ = Command::new("pkill").args(&["-f", name]).output();
         Ok(())
     }
 }
@@ -179,14 +183,24 @@ pub fn run_diskpart_script(script: &str) -> crate::Result<String> {
     let _ = std::fs::remove_file(&script_path);
 
     if !output.status.success() {
-        let detail = if stderr.trim().is_empty() { &stdout } else { &stderr };
+        let detail = if stderr.trim().is_empty() {
+            &stdout
+        } else {
+            &stderr
+        };
         error!("Diskpart failed: {}", detail);
-        return Err(AppError::DiskError(format!("Diskpart failed: {}", detail.trim())));
+        return Err(AppError::DiskError(format!(
+            "Diskpart failed: {}",
+            detail.trim()
+        )));
     }
 
     // Also check stdout for common diskpart error patterns
     let stdout_lower = stdout.to_lowercase();
-    if stdout_lower.contains("error") || stdout_lower.contains("is not valid") || stdout_lower.contains("cannot be") {
+    if stdout_lower.contains("error")
+        || stdout_lower.contains("is not valid")
+        || stdout_lower.contains("cannot be")
+    {
         warn!("Diskpart reported error in output: {}", stdout);
     }
 
@@ -229,12 +243,16 @@ pub fn run_diskpart_script_with_output(script: &str) -> crate::Result<(String, S
 /// Placeholder for non-Windows platforms
 #[cfg(not(target_os = "windows"))]
 pub fn run_diskpart_script(_script: &str) -> crate::Result<String> {
-    Err(AppError::SystemError("Diskpart is only available on Windows".to_string()))
+    Err(AppError::SystemError(
+        "Diskpart is only available on Windows".to_string(),
+    ))
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn run_diskpart_script_with_output(_script: &str) -> crate::Result<(String, String)> {
-    Err(AppError::SystemError("Diskpart is only available on Windows".to_string()))
+    Err(AppError::SystemError(
+        "Diskpart is only available on Windows".to_string(),
+    ))
 }
 
 /// Check if a path exists, with retries

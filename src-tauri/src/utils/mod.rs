@@ -1,8 +1,8 @@
 pub mod command;
 pub mod log;
-pub mod task_manager;
-pub mod progress;
 pub mod output_capture;
+pub mod progress;
+pub mod task_manager;
 
 use sysinfo::System;
 #[cfg(target_os = "windows")]
@@ -52,7 +52,11 @@ pub fn get_cpu_model() -> String {
         let mut sys = System::new();
         sys.refresh_cpu();
         let brand = sys.global_cpu_info().brand().trim().to_string();
-        if brand.is_empty() { "Unknown CPU".to_string() } else { brand }
+        if brand.is_empty() {
+            "Unknown CPU".to_string()
+        } else {
+            brand
+        }
     })
 }
 
@@ -69,7 +73,9 @@ fn get_os_version_detailed() -> Option<String> {
 
     if let Ok(com) = COMLibrary::new() {
         if let Ok(wmi_con) = WMIConnection::new(com.into()) {
-            if let Ok(results) = wmi_con.raw_query::<Win32OS>("SELECT Caption, BuildNumber FROM Win32_OperatingSystem") {
+            if let Ok(results) = wmi_con
+                .raw_query::<Win32OS>("SELECT Caption, BuildNumber FROM Win32_OperatingSystem")
+            {
                 if let Some(os) = results.first() {
                     let mut s = os.caption.clone().unwrap_or_default();
                     if !s.is_empty() {
@@ -88,7 +94,9 @@ fn get_os_version_detailed() -> Option<String> {
 
     // Fallback to registry fields
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let key = hklm.open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion").ok()?;
+    let key = hklm
+        .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
+        .ok()?;
 
     let product_name: String = key.get_value("ProductName").unwrap_or_default();
     let display_version: String = key.get_value("DisplayVersion").unwrap_or_default();
@@ -126,7 +134,8 @@ fn get_cpu_model_detailed() -> Option<String> {
 
     let com = COMLibrary::new().ok()?;
     let wmi_con = WMIConnection::new(com.into()).ok()?;
-    let results: Vec<Win32Processor> = wmi_con.raw_query("SELECT Name FROM Win32_Processor").ok()?;
+    let results: Vec<Win32Processor> =
+        wmi_con.raw_query("SELECT Name FROM Win32_Processor").ok()?;
     results
         .into_iter()
         .filter_map(|p| p.name)

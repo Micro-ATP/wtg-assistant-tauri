@@ -85,6 +85,26 @@ export const systemApi = {
       throw error
     }
   },
+
+  getLogsDirectory: async (): Promise<string> => {
+    try {
+      const path = await invoke<string>('get_logs_directory')
+      return path
+    } catch (error) {
+      console.error('Failed to get logs directory:', error)
+      throw error
+    }
+  },
+
+  openLogsDirectory: async (): Promise<string> => {
+    try {
+      const path = await invoke<string>('open_logs_directory')
+      return path
+    } catch (error) {
+      console.error('Failed to open logs directory:', error)
+      throw error
+    }
+  },
 }
 
 /**

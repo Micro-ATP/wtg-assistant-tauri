@@ -1,5 +1,5 @@
+use crate::{AppError, Result};
 use serde::{Deserialize, Serialize};
-use crate::Result;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SystemInfo {
@@ -24,4 +24,41 @@ pub async fn get_system_info() -> Result<SystemInfo> {
         available_memory: crate::utils::get_available_memory(),
         cpu_count: num_cpus::get(),
     })
+}
+
+#[tauri::command]
+pub async fn get_logs_directory() -> Result<String> {
+    let dir = crate::utils::log::ensure_logs_dir().map_err(AppError::io)?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn open_logs_directory() -> Result<String> {
+    let dir = crate::utils::log::ensure_logs_dir().map_err(AppError::io)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(AppError::io)?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(AppError::io)?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(AppError::io)?;
+    }
+
+    Ok(dir.to_string_lossy().to_string())
 }

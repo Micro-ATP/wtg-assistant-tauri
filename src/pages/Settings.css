@@ -143,6 +143,20 @@
   text-align: left;
 }
 
+.about-row-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.about-row-sub {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .about-row.static {
   cursor: default;
 }

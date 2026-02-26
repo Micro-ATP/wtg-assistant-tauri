@@ -3,9 +3,9 @@
 
 #![allow(dead_code)]
 
-use crate::utils::command::{run_diskpart_script, wait_for_path, CommandExecutor};
+use crate::models::{BootMode, FirmwareType};
 use crate::services::boot;
-use crate::models::{FirmwareType, BootMode};
+use crate::utils::command::{run_diskpart_script, wait_for_path, CommandExecutor};
 use crate::{AppError, Result};
 use regex::Regex;
 use tracing::info;
@@ -106,7 +106,15 @@ pub fn clean_temp(vhd_name: &str) -> Result<()> {
 
     // Clean temp files
     let temp_dir = std::env::temp_dir();
-    let patterns = ["create.txt", "removex.txt", "detach.txt", "uefi.txt", "uefimbr.txt", "dp.txt", "attach.txt"];
+    let patterns = [
+        "create.txt",
+        "removex.txt",
+        "detach.txt",
+        "uefi.txt",
+        "uefimbr.txt",
+        "dp.txt",
+        "attach.txt",
+    ];
     for pattern in &patterns {
         let path = temp_dir.join(pattern);
         let _ = std::fs::remove_file(&path);
@@ -161,7 +169,9 @@ pub fn create_vhd(
 
     // Verify V: drive exists
     if !std::path::Path::new("V:\\").exists() {
-        return Err(AppError::DiskError("VHD creation failed - V: drive not found".to_string()));
+        return Err(AppError::DiskError(
+            "VHD creation failed - V: drive not found".to_string(),
+        ));
     }
 
     Ok(())
@@ -181,10 +191,7 @@ pub fn attach_vhd(vhd_path: &str) -> Result<()> {
 
 /// Detach a VHD
 pub fn detach_vhd(vhd_path: &str) -> Result<()> {
-    let script = format!(
-        "select vdisk file=\"{}\"\ndetach vdisk\n",
-        vhd_path
-    );
+    let script = format!("select vdisk file=\"{}\"\ndetach vdisk\n", vhd_path);
 
     info!("Detaching VHD: {}", vhd_path);
     run_diskpart_script(&script)?;
@@ -212,7 +219,9 @@ fn detach_vhd_extra(vhd_name: &str) -> Result<()> {
 #[cfg(target_os = "windows")]
 pub fn copy_vhd(vhd_path: &str, target_ud: &str, _vhd_ext: &str) -> Result<()> {
     if !std::path::Path::new(vhd_path).exists() {
-        return Err(AppError::DiskError("VHD file not found for copying".to_string()));
+        return Err(AppError::DiskError(
+            "VHD file not found for copying".to_string(),
+        ));
     }
 
     info!("Copying VHD from {} to {}", vhd_path, target_ud);
@@ -234,12 +243,7 @@ pub fn copy_vhd(vhd_path: &str, target_ud: &str, _vhd_ext: &str) -> Result<()> {
     if std::path::Path::new(&robocopy_path).exists() {
         let _ = CommandExecutor::execute_allow_fail(
             &robocopy_path,
-            &[
-                &format!("{}\\", source_dir),
-                target_ud,
-                &filename,
-                "/ETA",
-            ],
+            &[&format!("{}\\", source_dir), target_ud, &filename, "/ETA"],
         );
     } else {
         // Fallback to standard file copy

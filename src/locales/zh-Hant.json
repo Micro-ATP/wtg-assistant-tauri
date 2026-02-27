@@ -106,6 +106,7 @@
   },
   "benchmark": {
     "title": "USB 基準測試",
+    "selectDisk": "選擇磁碟",
     "start": "開始測試",
     "readSpeed": "讀取速度",
     "writeSpeed": "寫入速度",

@@ -83,9 +83,32 @@ function ConfigurePage() {
     const driveType = (disk.drive_type || '').toUpperCase()
     if (media.includes('SSD')) return 'SSD'
     if (media.includes('HDD')) return 'HDD'
-    if (media.includes('USB') || driveType.includes('USB')) return 'USB'
     if (media.includes('NVME') || driveType.includes('NVME')) return 'SSD'
-    return disk.removable ? 'USB' : 'Unknown'
+    return 'Unknown'
+  }
+
+  const getProtocolLabel = (disk: DiskInfo) => {
+    const driveType = (disk.drive_type || '').toUpperCase()
+    if (driveType.includes('NVME')) return 'NVMe'
+    if (driveType.includes('SATA')) return 'SATA'
+    if (driveType.includes('USB')) return 'USB'
+    if (driveType.includes('SAS')) return 'SAS'
+    if (driveType.includes('RAID')) return 'RAID'
+    if (driveType.includes('ATA')) return 'ATA'
+    if (driveType.includes('SCSI')) return 'SCSI'
+    if (driveType.includes('ATAPI')) return 'ATAPI'
+    if (driveType.includes('SD')) return 'SD'
+    if (driveType.includes('MMC')) return 'MMC'
+    return 'Disk'
+  }
+
+  const getDiskBadgeMeta = (disk: DiskInfo) => {
+    const mediaLabel = getMediaLabel(disk)
+    const protocolLabel = getProtocolLabel(disk)
+    const iconLabel = mediaLabel !== 'Unknown' ? mediaLabel : protocolLabel
+    const badgeLabels = [mediaLabel, protocolLabel].filter((v) => v && v !== 'Unknown')
+    const badges = badgeLabels.filter((v, idx) => badgeLabels.indexOf(v) === idx)
+    return { iconLabel, badges }
   }
 
   const handleSelectImage = async () => {
@@ -348,23 +371,29 @@ function ConfigurePage() {
           {visibleDisks.length === 0 && !loading ? (
             <div className="empty-state">{t('errors.deviceNotFound')}</div>
           ) : (
-            visibleDisks.map((disk) => (
+            visibleDisks.map((disk) => {
+              const { iconLabel, badges } = getDiskBadgeMeta(disk)
+              return (
               <div
                 key={disk.id}
                 className={`disk-item ${selectedDisk?.id === disk.id ? 'selected' : ''}`}
                 onClick={() => setSelectedDisk(disk)}
               >
-                <div className="disk-icon">{getMediaLabel(disk)}</div>
+                <div className="disk-icon">{iconLabel}</div>
                 <div className="disk-info">
                   <div className="disk-name">{disk.name}</div>
                   <div className="disk-details">
                     {disk.device} - {formatBytes(disk.size)}
-                    <span className="badge-removable">{getMediaLabel(disk)}</span>
-                    {disk.removable && <span className="badge-removable">USB</span>}
+                    {badges.map((badge) => (
+                      <span className="badge-removable" key={`${disk.id}-${badge}`}>
+                        {badge}
+                      </span>
+                    ))}
                   </div>
                 </div>
               </div>
-            ))
+              )
+            })
           )}
         </div>
       </section>

@@ -201,9 +201,9 @@ function BenchmarkPage() {
   }, [loadDisks])
 
   const visibleDisks = useMemo(() => {
-    const mounted = disks.filter((d) => getBenchmarkTargetPath(d).length > 0)
-    const removableMounted = mounted.filter((d) => d.removable)
-    return removableMounted.length > 0 ? removableMounted : mounted
+    const withPath = disks.filter((d) => getBenchmarkTargetPath(d).length > 0)
+    const withoutPath = disks.filter((d) => getBenchmarkTargetPath(d).length === 0)
+    return [...withPath, ...withoutPath]
   }, [disks])
 
   useEffect(() => {
@@ -215,7 +215,8 @@ function BenchmarkPage() {
       : undefined
     const currentTarget = current ? getBenchmarkTargetPath(current) : ''
     if (!current || !currentTarget) {
-      setSelectedDisk(visibleDisks[0])
+      const firstWithPath = visibleDisks.find((d) => getBenchmarkTargetPath(d).length > 0)
+      setSelectedDisk(firstWithPath || visibleDisks[0])
     }
   }, [visibleDisks, selectedDisk, setSelectedDisk])
 
@@ -273,7 +274,7 @@ function BenchmarkPage() {
   const handleStart = async () => {
     const fallbackDisk = selectedDisk && getBenchmarkTargetPath(selectedDisk)
       ? selectedDisk
-      : visibleDisks[0] || null
+      : visibleDisks.find((d) => getBenchmarkTargetPath(d).length > 0) || null
     const targetPath = fallbackDisk ? getBenchmarkTargetPath(fallbackDisk) : ''
     if (!fallbackDisk || !targetPath) {
       setBenchError(t('errors.deviceNotFound') || 'No disk selected')
@@ -329,7 +330,7 @@ function BenchmarkPage() {
 
       <section className="config-card">
         <div className="card-header">
-          <h2>{t('configure.selectDisk')}</h2>
+          <h2>{t('benchmark.selectDisk') || t('configure.selectDisk')}</h2>
           <button className="btn-refresh" onClick={() => void loadDisks()} disabled={loading}>
             {loading ? <SpinnerIcon size={18} /> : <RefreshIcon size={18} />}
           </button>
@@ -398,7 +399,7 @@ function BenchmarkPage() {
         </div>
         <div className="bench-actions">
           <div>
-            <div className="label">{t('configure.selectDisk')}</div>
+            <div className="label">{t('benchmark.selectDisk') || t('configure.selectDisk')}</div>
             <div className="value">{formatDiskTarget(selectedDisk)}</div>
           </div>
           <div className="bench-buttons">

@@ -102,6 +102,7 @@
   },
   "benchmark": {
     "title": "USB Benchmark",
+    "selectDisk": "Select Disk",
     "start": "Start Benchmark",
     "readSpeed": "Read Speed",
     "writeSpeed": "Write Speed",

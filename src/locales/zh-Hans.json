@@ -106,6 +106,7 @@
   },
   "benchmark": {
     "title": "USB 基准测试",
+    "selectDisk": "选择磁盘",
     "start": "开始测试",
     "readSpeed": "读取速度",
     "writeSpeed": "写入速度",

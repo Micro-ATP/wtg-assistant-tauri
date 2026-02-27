@@ -203,17 +203,17 @@ fn parse_media_type_macos(info: &Value) -> String {
         return "SSD".to_string();
     }
 
-    let bus = json_str(info, "BusProtocol");
-    if bus.eq_ignore_ascii_case("USB") {
-        return "USB".to_string();
-    }
-
     let media_name = json_str(info, "MediaName").to_ascii_uppercase();
     if media_name.contains("SSD") || media_name.contains("NVME") {
         return "SSD".to_string();
     }
     if media_name.contains("HDD") {
         return "HDD".to_string();
+    }
+
+    let bus = json_str(info, "BusProtocol");
+    if bus.eq_ignore_ascii_case("NVME") {
+        return "SSD".to_string();
     }
 
     "Unknown".to_string()
